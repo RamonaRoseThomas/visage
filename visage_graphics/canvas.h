@@ -193,12 +193,6 @@ namespace visage {
       }
     }
 
-    void rotary(float x, float y, float width, float value, float hover_amount, float arc_thickness,
-                const ColorGradient& back_color, const ColorGradient& thumb_color, bool bipolar = false) {
-      addShape(Rotary(state_.clamp, state_.color, back_color, thumb_color, state_.x + x,
-                      state_.y + y, width, value, bipolar, hover_amount, arc_thickness));
-    }
-
     void rectangle(float x, float y, float width, float height) {
       addShape(Rectangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height));
     }
