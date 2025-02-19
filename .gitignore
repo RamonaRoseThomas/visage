@@ -1,5 +1,6 @@
 .DS_Store
 .DS_Store?
+.vscode
 VTune\ Profiler\ Results
 cmake-build*
 *.swp
@@ -46,3 +47,5 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 .idea
+.cache/clangd
+.cache

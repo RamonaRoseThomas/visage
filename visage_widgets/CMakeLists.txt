@@ -15,3 +15,8 @@ if (VISAGE_ENABLE_WIDGETS)
   target_link_libraries(VisageWidgets PRIVATE VisageGraphicsEmbeds)
   set_target_properties(VisageWidgets PROPERTIES FOLDER "visage")
 endif ()
+
+if(APPLE)
+  set(CMAKE_C_COMPILER "/usr/bin/clang" CACHE STRING "C compiler" FORCE)
+  set(CMAKE_CXX_COMPILER "/usr/bin/clang++" CACHE STRING "C++ compiler" FORCE)
+endif()
