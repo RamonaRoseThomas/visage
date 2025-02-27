@@ -445,6 +445,10 @@ namespace visage {
     return std::make_unique<WindowX11>(window_x, window_y, bounds.width(), bounds.height(), decoration);
   }
 
+  void* headlessWindowHandle() {
+    return nullptr;
+  }
+
   std::unique_ptr<Window> createPluginWindow(const Dimension& width, const Dimension& height,
                                              void* parent_handle) {
     Bounds bounds = computeWindowBounds(width, height);
@@ -1444,11 +1448,6 @@ namespace visage {
         last_timer_microseconds = time::microseconds();
         long long us_time = last_timer_microseconds - start_microseconds_;
         drawCallback(us_time / 1000000.0);
-
-        while (XPending(X11Connection::globalInstance()->display())) {
-          XNextEvent(X11Connection::globalInstance()->display(), &event);
-          processMessageWindowEvent(event);
-        }
       }
       else if (FD_ISSET(fd, &read_fds)) {
         while (running && XPending(x11_->display())) {

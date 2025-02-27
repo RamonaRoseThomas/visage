@@ -21,7 +21,10 @@
 
 #pragma once
 
+#include "visage_utils/space.h"
+
 #include <cmath>
+#include <cstdint>
 #include <iosfwd>
 #include <string>
 
@@ -29,37 +32,36 @@ namespace visage {
   class Color {
   public:
     enum {
-      kRed,
-      kGreen,
       kBlue,
+      kGreen,
+      kRed,
       kAlpha,
       kNumChannels
     };
     static constexpr int kBitsPerColor = 8;
     static constexpr float kFloatScale = 1.0f / 0xff;
     static constexpr float kHueRange = 360.0f;
+    static constexpr float kGradientNormalization = 64.0f;
 
-    static unsigned int floatToHex(float value) {
-      return std::round(std::max(0.0f, std::min(1.0f, value)) * 0xff);
-    }
-
-    static char hexCharacter(int value) {
-      if (value < 10)
-        return '0' + value;
-      return 'A' + value - 10;
-    }
-
-    static std::string floatToHexString(float value) {
-      unsigned int hex_value = floatToHex(value);
-      char first_digit = hexCharacter(hex_value & 0xf);
-      char second_digit = hexCharacter(hex_value >> 4);
-      return std::string(1, second_digit) + std::string(1, first_digit);
+    static int compare(const Color& a, const Color& b) {
+      for (int i = 0; i < kNumChannels; ++i) {
+        if (a.values_[i] < b.values_[i])
+          return -1;
+        if (a.values_[i] > b.values_[i])
+          return 1;
+      }
+      if (a.hdr_ < b.hdr_)
+        return -1;
+      if (a.hdr_ > b.hdr_)
+        return 1;
+      return 0;
     }
 
     static Color fromAHSV(float alpha, float hue, float saturation, float value) {
       static constexpr float kHueCutoff = kHueRange / 6.0f;
       Color result;
 
+      hue = std::fmod(hue, kHueRange);
       result.values_[kAlpha] = alpha;
       float range = value * saturation;
       float minimum = value - range;
@@ -95,6 +97,18 @@ namespace visage {
       return result;
     }
 
+    static Color fromABGR16(uint16_t abgr) {
+      Color result;
+      result.loadABGR16(abgr);
+      return result;
+    }
+
+    static Color fromARGB16(uint16_t argb) {
+      Color result;
+      result.loadARGB16(argb);
+      return result;
+    }
+
     static Color fromABGR(unsigned int abgr) {
       Color result;
       result.loadABGR(abgr);
@@ -113,7 +127,7 @@ namespace visage {
 
       std::string hex = color_string[0] == '#' ? color_string.substr(1) : color_string;
 
-      if (color_string.size() <= 8) {
+      if (hex.size() < 8) {
         unsigned int value = std::stoul(hex, nullptr, 16);
         return value | 0xff000000;
       }
@@ -135,23 +149,27 @@ namespace visage {
       hdr_ = hdr;
     }
 
-    void loadABGR(unsigned int abgr) {
+    void loadARGB16(uint64_t abgr) {
+      for (int i = 0; i < kNumChannels; ++i) {
+        int shift = kBitsPerColor * i * 2;
+        values_[i] = ((abgr >> shift) & 0xffff) * kFloatScale;
+      }
+    }
+
+    void loadABGR16(uint64_t abgr) {
+      loadARGB16(abgr);
+      std::swap(values_[kBlue], values_[kRed]);
+    }
+
+    void loadARGB(unsigned int abgr) {
       for (int i = 0; i < kNumChannels; ++i) {
         int shift = kBitsPerColor * i;
         values_[i] = ((abgr >> shift) & 0xff) * kFloatScale;
       }
     }
 
-    void loadARGB(unsigned int argb) {
-      loadABGR(argb);
-      std::swap(values_[kBlue], values_[kRed]);
-    }
-
-    void loadRGB(unsigned int rgb) {
-      for (int i = 0; i < kAlpha; ++i) {
-        int shift = kBitsPerColor * i;
-        values_[i] = ((rgb >> shift) & 0xff) * kFloatScale;
-      }
+    void loadABGR(unsigned int abgr) {
+      loadARGB(abgr);
       std::swap(values_[kBlue], values_[kRed]);
     }
 
@@ -164,14 +182,43 @@ namespace visage {
         values_[i] *= amount;
     }
 
+    uint64_t toABGR16() const {
+      float mult = hdr_ / kGradientNormalization;
+      uint64_t value = floatToHex16(values_[kAlpha]) << (6 * kBitsPerColor);
+      value += floatToHex16(values_[kBlue] * mult) << (4 * kBitsPerColor);
+      value += floatToHex16(values_[kGreen] * mult) << (2 * kBitsPerColor);
+      return value + floatToHex16(values_[kRed] * mult);
+    }
+
+    uint64_t toARGB16() const {
+      float mult = hdr_ / kGradientNormalization;
+      uint64_t value = floatToHex16(values_[kAlpha]) << (6 * kBitsPerColor);
+      value += floatToHex16(values_[kRed] * mult) << (4 * kBitsPerColor);
+      value += floatToHex16(values_[kGreen] * mult) << (2 * kBitsPerColor);
+      return value + floatToHex16(values_[kBlue] * mult);
+    }
+
+    uint64_t toABGR16F() const {
+      float mult = hdr_ / kGradientNormalization;
+      uint64_t value = floatToHalf(values_[kAlpha]) << (6 * kBitsPerColor);
+      value += floatToHalf(values_[kBlue] * mult) << (4 * kBitsPerColor);
+      value += floatToHalf(values_[kGreen] * mult) << (2 * kBitsPerColor);
+      return value + floatToHalf(values_[kRed] * mult);
+    }
+
+    uint64_t toARGB16F() const {
+      float mult = hdr_ / kGradientNormalization;
+      uint64_t value = floatToHalf(values_[kAlpha]) << (6 * kBitsPerColor);
+      value += floatToHalf(values_[kRed] * mult) << (4 * kBitsPerColor);
+      value += floatToHalf(values_[kGreen] * mult) << (2 * kBitsPerColor);
+      return value + floatToHalf(values_[kBlue] * mult);
+    }
+
     unsigned int toABGR() const {
-      unsigned int value = 0;
-      for (int i = kNumChannels - 1; i >= 0; --i) {
-        value = value << kBitsPerColor;
-        int color_value = floatToHex(values_[i]);
-        value += color_value;
-      }
-      return value;
+      unsigned int value = floatToHex(values_[kAlpha]) << (3 * kBitsPerColor);
+      value += floatToHex(values_[kBlue]) << (2 * kBitsPerColor);
+      value += floatToHex(values_[kGreen]) << kBitsPerColor;
+      return value + floatToHex(values_[kRed]);
     }
 
     unsigned int toARGB() const {
@@ -192,10 +239,6 @@ namespace visage {
     float green() const { return values_[kGreen]; }
     float blue() const { return values_[kBlue]; }
     float hdr() const { return hdr_; }
-
-    float minColor() const {
-      return std::min(values_[kRed], std::min(values_[kGreen], values_[kBlue]));
-    }
 
     float value() const {
       return std::max(values_[kRed], std::max(values_[kGreen], values_[kBlue]));
@@ -219,8 +262,12 @@ namespace visage {
       float color_range = kHueRange / 6.0f;
 
       if (values_[kRed] == max) {
-        if (values_[kGreen] == min)
-          return kHueRange - color_range * (values_[kBlue] - min) / range;
+        if (values_[kGreen] == min) {
+          float delta = color_range * (values_[kBlue] - min) / range;
+          if (delta == 0.0f)
+            return 0.0f;
+          return kHueRange - delta;
+        }
         return color_range * (values_[kGreen] - min) / range;
       }
       if (values_[kGreen] == max) {
@@ -244,16 +291,25 @@ namespace visage {
       return *this;
     }
     Color operator*(float mult) const {
-      return { values_[kAlpha] * mult, values_[kRed] * mult, values_[kGreen] * mult, values_[kBlue] * mult };
+      return { values_[kAlpha] * mult, values_[kRed] * mult, values_[kGreen] * mult,
+               values_[kBlue] * mult, hdr_ };
     }
     Color operator-(const Color& other) const {
       return { values_[kAlpha] - other.values_[kAlpha], values_[kRed] - other.values_[kRed],
-               values_[kGreen] - other.values_[kGreen], values_[kBlue] - other.values_[kBlue] };
+               values_[kGreen] - other.values_[kGreen], values_[kBlue] - other.values_[kBlue], hdr_ };
     }
     Color operator+(const Color& other) const {
       return { values_[kAlpha] + other.values_[kAlpha], values_[kRed] + other.values_[kRed],
-               values_[kGreen] + other.values_[kGreen], values_[kBlue] + other.values_[kBlue] };
+               values_[kGreen] + other.values_[kGreen], values_[kBlue] + other.values_[kBlue], hdr_ };
     }
+    bool operator==(const Color& other) const {
+      return values_[kAlpha] == other.values_[kAlpha] && values_[kRed] == other.values_[kRed] &&
+             values_[kGreen] == other.values_[kGreen] && values_[kBlue] == other.values_[kBlue] &&
+             hdr_ == other.hdr_;
+    }
+
+    bool operator<(const Color& other) const { return compare(*this, other) < 0; }
+    bool operator>(const Color& other) const { return compare(*this, other) > 0; }
 
     std::string encode() const;
     void encode(std::ostringstream& stream) const;
@@ -283,234 +339,59 @@ namespace visage {
     }
 
   private:
+    static unsigned int floatToHex(float value) {
+      return std::round(std::max(0.0f, std::min(1.0f, value)) * 0xff);
+    }
+
+    static uint64_t floatToHex16(float value) {
+      return std::round(std::max(0.0f, std::min(1.0f, value)) * 0xffff);
+    }
+
+    static uint64_t floatToHalf(float value) {
+      uint32_t f = *reinterpret_cast<uint32_t*>(&value);
+      uint32_t sign = (f >> 16) & 0x8000;  // Sign bit
+      uint32_t exponent = (f >> 23) & 0xFF;  // Extract exponent (8-bit)
+      uint32_t mantissa = f & 0x007FFFFF;  // Extract mantissa (23-bit)
+
+      if (exponent == 255) {  // Handle NaN or Infinity
+        if (mantissa)
+          return sign | 0x7FFF;  // NaN (all exponent bits 1 and mantissa nonzero)
+        return sign | 0x7C00;  // Infinity
+      }
+
+      if (exponent > 112) {  // Normalized case
+        exponent -= 112;  // Adjust bias from 127 (float) to 15 (half-float)
+        if (exponent > 30)  // Overflow (set to Infinity)
+          return sign | 0x7C00;
+        return sign | (exponent << 10) | (mantissa >> 13);
+      }
+
+      if (exponent > 103) {  // Subnormal case
+        mantissa |= 0x00800000;  // Add implicit leading 1 bit
+        return sign | ((mantissa >> (113 - exponent)) & 0x3FF);
+      }
+
+      return sign;  // Underflow to zero
+    }
+
+    static char hexCharacter(int value) {
+      if (value < 10)
+        return '0' + value;
+      return 'A' + value - 10;
+    }
+
+    static std::string floatToHexString(float value) {
+      unsigned int hex_value = floatToHex(value);
+      char first_digit = hexCharacter(hex_value & 0xf);
+      char second_digit = hexCharacter(hex_value >> 4);
+      return std::string(1, second_digit) + std::string(1, first_digit);
+    }
+
+    float minColor() const {
+      return std::min(values_[kRed], std::min(values_[kGreen], values_[kBlue]));
+    }
+
     float values_[kNumChannels] {};
     float hdr_ = 1.0f;
-  };
-
-  class HorizontalGradient {
-  public:
-    HorizontalGradient(const Color& left, const Color& right) : left_(left), right_(right) { }
-
-    const Color& left() const { return left_; }
-    const Color& right() const { return right_; }
-
-  private:
-    Color left_;
-    Color right_;
-  };
-
-  class VerticalGradient {
-  public:
-    VerticalGradient(const Color& top, const Color& bottom) : top_(top), bottom_(bottom) { }
-
-    const Color& top() const { return top_; }
-    const Color& bottom() const { return bottom_; }
-
-  private:
-    Color top_;
-    Color bottom_;
-  };
-
-  struct QuadColor {
-    enum {
-      kTopLeft,
-      kTopRight,
-      kBottomLeft,
-      kBottomRight,
-      kNumCorners
-    };
-
-    unsigned int corners[kNumCorners] {};
-    float hdr[kNumCorners] {};
-
-    static unsigned int toABGR(unsigned int argb) {
-      int abgr = argb;
-      char* chars = reinterpret_cast<char*>(&abgr);
-      std::swap(chars[0], chars[2]);
-      return abgr;
-    }
-
-    static int interpolateColor(unsigned int hex_color1, unsigned int hex_color2, float t) {
-      unsigned int result = 0;
-      for (int i = 0; i < Color::kNumChannels; ++i) {
-        int hex_shift = i * Color::kBitsPerColor;
-        int channel1 = (hex_color1 >> hex_shift) & 0xff;
-        int channel2 = (hex_color2 >> hex_shift) & 0xff;
-        unsigned int result_channel = channel1 + (channel2 - channel1) * t;
-        result_channel = std::min<int>(0xff, result_channel);
-        result = result | (result_channel << hex_shift);
-      }
-      return result;
-    }
-
-    static float interpolateHdr(float from, float to, float t) { return from + (to - from) * t; }
-
-    QuadColor() : corners() { }
-
-    QuadColor(const Color& color) {
-      unsigned int value = color.toABGR();
-      float hdr_value = color.hdr();
-      corners[kTopLeft] = value;
-      corners[kTopRight] = value;
-      corners[kBottomLeft] = value;
-      corners[kBottomRight] = value;
-      hdr[kTopLeft] = hdr_value;
-      hdr[kTopRight] = hdr_value;
-      hdr[kBottomLeft] = hdr_value;
-      hdr[kBottomRight] = hdr_value;
-    }
-
-    QuadColor(unsigned int top_left, unsigned int top_right, unsigned int bottom_left,
-              unsigned int bottom_right, float top_left_hdr, float top_right_hdr,
-              float bottom_left_hdr, float bottom_right_hdr) {
-      corners[kTopLeft] = top_left;
-      corners[kTopRight] = top_right;
-      corners[kBottomLeft] = bottom_left;
-      corners[kBottomRight] = bottom_right;
-      hdr[kTopLeft] = top_left_hdr;
-      hdr[kTopRight] = top_right_hdr;
-      hdr[kBottomLeft] = bottom_left_hdr;
-      hdr[kBottomRight] = bottom_right_hdr;
-    }
-
-    QuadColor(const HorizontalGradient& gradient) {
-      unsigned int left = gradient.left().toABGR();
-      unsigned int right = gradient.right().toABGR();
-      float left_hdr = gradient.left().hdr();
-      float right_hdr = gradient.right().hdr();
-      corners[kTopLeft] = left;
-      corners[kTopRight] = right;
-      corners[kBottomLeft] = left;
-      corners[kBottomRight] = right;
-      hdr[kTopLeft] = left_hdr;
-      hdr[kTopRight] = right_hdr;
-      hdr[kBottomLeft] = left_hdr;
-      hdr[kBottomRight] = right_hdr;
-    }
-
-    QuadColor(const VerticalGradient& gradient) {
-      unsigned int top = gradient.top().toABGR();
-      unsigned int bottom = gradient.bottom().toABGR();
-      float top_hdr = gradient.top().hdr();
-      float bottom_hdr = gradient.bottom().hdr();
-      corners[kTopLeft] = top;
-      corners[kTopRight] = top;
-      corners[kBottomLeft] = bottom;
-      corners[kBottomRight] = bottom;
-      hdr[kTopLeft] = top_hdr;
-      hdr[kTopRight] = top_hdr;
-      hdr[kBottomLeft] = bottom_hdr;
-      hdr[kBottomRight] = bottom_hdr;
-    }
-
-    QuadColor(int argb, float hdr_value = 1.0f) {
-      unsigned int abgr = toABGR(argb);
-      corners[kTopLeft] = abgr;
-      corners[kTopRight] = abgr;
-      corners[kBottomLeft] = abgr;
-      corners[kBottomRight] = abgr;
-      hdr[kTopLeft] = hdr_value;
-      hdr[kTopRight] = hdr_value;
-      hdr[kBottomLeft] = hdr_value;
-      hdr[kBottomRight] = hdr_value;
-    }
-
-    QuadColor withAlpha(float alpha) const {
-      int alpha_value = alpha * 0xff;
-      alpha_value = alpha_value << (Color::kBitsPerColor * 3);
-      QuadColor result;
-      result.corners[kTopLeft] = alpha_value + (corners[kTopLeft] & 0xffffff);
-      result.corners[kTopRight] = alpha_value + (corners[kTopRight] & 0xffffff);
-      result.corners[kBottomLeft] = alpha_value + (corners[kBottomLeft] & 0xffffff);
-      result.corners[kBottomRight] = alpha_value + (corners[kBottomRight] & 0xffffff);
-      result.hdr[kTopLeft] = hdr[kTopLeft];
-      result.hdr[kTopRight] = hdr[kTopRight];
-      result.hdr[kBottomLeft] = hdr[kBottomLeft];
-      result.hdr[kBottomRight] = hdr[kBottomRight];
-      return result;
-    }
-
-    QuadColor withMultipliedAlpha(float multiply) const {
-      QuadColor result;
-      result.corners[kTopLeft] = interpolateColor(corners[kTopLeft] & 0xffffff, corners[kTopLeft], multiply);
-      result.corners[kTopRight] = interpolateColor(corners[kTopRight] & 0xffffff,
-                                                   corners[kTopRight], multiply);
-      result.corners[kBottomLeft] = interpolateColor(corners[kBottomLeft] & 0xffffff,
-                                                     corners[kBottomLeft], multiply);
-      result.corners[kBottomRight] = interpolateColor(corners[kBottomRight] & 0xffffff,
-                                                      corners[kBottomRight], multiply);
-      result.hdr[kTopLeft] = hdr[kTopLeft];
-      result.hdr[kTopRight] = hdr[kTopRight];
-      result.hdr[kBottomLeft] = hdr[kBottomLeft];
-      result.hdr[kBottomRight] = hdr[kBottomRight];
-      return result;
-    }
-
-    QuadColor withMultipliedHdr(float multiply) const {
-      QuadColor result = *this;
-      result.hdr[kTopLeft] = multiply * hdr[kTopLeft];
-      result.hdr[kTopRight] = multiply * hdr[kTopRight];
-      result.hdr[kBottomLeft] = multiply * hdr[kBottomLeft];
-      result.hdr[kBottomRight] = multiply * hdr[kBottomRight];
-      return result;
-    }
-
-    QuadColor interpolate(const QuadColor& other, float t) const {
-      QuadColor result;
-      result.corners[kTopLeft] = interpolateColor(corners[kTopLeft], other.corners[kTopLeft], t);
-      result.corners[kTopRight] = interpolateColor(corners[kTopRight], other.corners[kTopRight], t);
-      result.corners[kBottomLeft] = interpolateColor(corners[kBottomLeft], other.corners[kBottomLeft], t);
-      result.corners[kBottomRight] = interpolateColor(corners[kBottomRight],
-                                                      other.corners[kBottomRight], t);
-      result.hdr[kTopLeft] = interpolateHdr(hdr[kTopLeft], other.hdr[kTopLeft], t);
-      result.hdr[kTopRight] = interpolateHdr(hdr[kTopRight], other.hdr[kTopRight], t);
-      result.hdr[kBottomLeft] = interpolateHdr(hdr[kBottomLeft], other.hdr[kBottomLeft], t);
-      result.hdr[kBottomRight] = interpolateHdr(hdr[kBottomRight], other.hdr[kBottomRight], t);
-      return result;
-    }
-
-    QuadColor sampleQuad(float x, float y, float width, float height) const {
-      QuadColor result;
-      result.corners[kTopLeft] = sampleColor(x, y);
-      result.corners[kBottomLeft] = sampleColor(x, y + height);
-      result.corners[kTopRight] = sampleColor(x + width, y);
-      result.corners[kBottomRight] = sampleColor(x + width, y + height);
-      result.hdr[kTopLeft] = sampleHdr(x, y);
-      result.hdr[kBottomLeft] = sampleHdr(x, y + height);
-      result.hdr[kTopRight] = sampleHdr(x + width, y);
-      result.hdr[kBottomRight] = sampleHdr(x + width, y + height);
-      return result;
-    }
-
-    QuadColor clipRight(float t) const {
-      QuadColor result;
-      result.corners[kTopLeft] = corners[kTopLeft];
-      result.corners[kBottomLeft] = corners[kBottomLeft];
-      result.corners[kTopRight] = interpolateColor(corners[kTopLeft], corners[kTopRight], t);
-      result.corners[kBottomRight] = interpolateColor(corners[kBottomLeft], corners[kBottomRight], t);
-      result.hdr[kTopLeft] = hdr[kTopLeft];
-      result.hdr[kBottomLeft] = hdr[kBottomLeft];
-      result.hdr[kTopRight] = interpolateHdr(hdr[kTopLeft], hdr[kTopRight], t);
-      result.hdr[kBottomRight] = interpolateHdr(hdr[kBottomLeft], hdr[kBottomRight], t);
-      return result;
-    }
-
-    unsigned int sampleColor(float x, float y) const {
-      unsigned int top = interpolateColor(corners[kTopLeft], corners[kTopRight], x);
-      unsigned int bottom = interpolateColor(corners[kBottomLeft], corners[kBottomRight], x);
-      return interpolateColor(top, bottom, y);
-    }
-
-    float sampleAlpha(float x, float y) const {
-      unsigned int top = interpolateColor(corners[kTopLeft], corners[kTopRight], x);
-      unsigned int bottom = interpolateColor(corners[kBottomLeft], corners[kBottomRight], x);
-      return (0xff & (interpolateColor(top, bottom, y) >> (3 * Color::kBitsPerColor))) * (1.0f / 0xff);
-    }
-
-    float sampleHdr(float x, float y) const {
-      float top = interpolateHdr(hdr[kTopLeft], hdr[kTopRight], x);
-      float bottom = interpolateHdr(hdr[kBottomLeft], hdr[kBottomRight], x);
-      return interpolateHdr(top, bottom, y);
-    }
   };
 }

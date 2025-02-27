@@ -35,11 +35,77 @@ float sdRoundedDiamond(vec2 position, vec2 diamond, float rounding) {
   return min(max(offset.x, offset.y), 0.0) + length(max(offset, 0.0)) - rounding;
 }
 
+vec2 gradient(vec2 color_from, vec2 color_to, vec2 point_from, vec2 point_to, vec2 position) {
+  vec2 delta = point_to - point_from;
+  float t = clamp(dot(position - point_from, delta) / dot(delta, delta), 0.0, 1.0);
+  return mix(color_from, color_to, t);
+}
+
 float sdSegment(vec2 position, vec2 point1, vec2 point2) {
   vec2 position_delta = position - point1;
   vec2 line_delta = point2 - point1;
   float t = clamp(dot(position_delta, line_delta) / dot(line_delta, line_delta), 0.0, 1.0);
   return length(position_delta - line_delta * t);
+}
+
+float cos_acos_3(float x) {
+  x = sqrt(0.5 + 0.5 * x);
+  return x * (x * (x * (x * -0.008972 + 0.039071) - 0.107074) + 0.576975) + 0.5;
+}
+
+float sdTriangle(vec2 position, vec2 point1, vec2 point2, vec2 point3) {
+  vec2 e0 = point2 - point1;
+  vec2 e1 = point3 - point2;
+  vec2 e2 = point1 - point3;
+  vec2 v0 = position - point1;
+  vec2 v1 = position - point2;
+  vec2 v2 = position - point3;
+  vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+  vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+  vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+  float s = sign(e0.x * e2.y - e0.y * e2.x);
+  vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                   vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                   vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+  return -sqrt(d.x) * sign(d.y);
+}
+
+float sdQuadraticBezier(vec2 position, vec2 point1, vec2 point2, vec2 point3) {
+  vec2 a = point2 - point1;
+  vec2 b = point1 - 2.0 * point2 + point3;
+  vec2 c = a * 2.0;
+  vec2 d = point1 - position;
+
+  float kk = 1.0 / dot(b, b);
+  float kx = kk * dot(a, b);
+  float ky = kk * (2.0 * dot(a, a) + dot(d, b)) / 3.0;
+  float kz = kk * dot(d, a);
+
+  float p = ky - kx * kx;
+  float q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
+  float p3 = p * p * p;
+  float q2 = q * q;
+  float h = q2 + 4.0 * p3;
+
+  if (h >= 0.0) {
+    h = sqrt(h);
+    vec2 x = (vec2(h, -h) - q) / 2.0;
+    vec2 uv = sign(x) * pow(abs(x), vec2(1.0, 1.0) / 3.0);
+    float t = uv.x + uv.y;
+
+    t = clamp(t - kx, 0.0, 1.0);
+    return length(d + (c + b * t) * t);
+  }
+
+  float z = sqrt(-p);
+  float m = cos_acos_3(q / (p * z * 2.0));
+  float n = sqrt(3.0 - 3.0 * m * m);
+  vec3 t = clamp(vec3(m + m, -n - m, n - m) * z - kx, 0.0, 1.0);
+  vec2 qx = d + (c + b * t.x) * t.x;
+  float dx = dot(qx, qx);
+  vec2 qy = d + (c + b * t.y) * t.y;
+  float dy = dot(qy, qy);
+  return sqrt(min(dx, dy));
 }
 
 float sdFlatSegment(vec2 position, vec2 point1, vec2 point2, float thickness) {
@@ -134,6 +200,16 @@ float circle(vec2 coordinates, float width, float thickness, float fade) {
 
 float segment(vec2 coordinates, vec2 dimensions, vec2 point1, vec2 point2, float thickness) {
   float distance = abs(sdSegment(coordinates * dimensions, point1 * dimensions, point2 * dimensions)) - thickness;
+  return 1.0 - smoothed(-2.0, 0.0, distance);
+}
+
+float trianglePoints(vec2 coordinates, vec2 dimensions, vec2 point1, vec2 point2, vec2 point3, float thickness, float rounding) {
+  float distance = sdTriangle(coordinates * dimensions, point1 * dimensions, point2 * dimensions, point3 * dimensions) - 2.0 * rounding;
+  return border(distance, thickness, 1.0);
+}
+
+float quadraticBezier(vec2 coordinates, vec2 dimensions, vec2 point1, vec2 point2, vec2 point3, float thickness) {
+  float distance = abs(sdQuadraticBezier(coordinates * dimensions, point1 * dimensions, point2 * dimensions, point3 * dimensions)) - thickness;
   return 1.0 - smoothed(-2.0, 0.0, distance);
 }
 

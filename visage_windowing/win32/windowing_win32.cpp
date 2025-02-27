@@ -1061,7 +1061,6 @@ namespace visage {
       drawCallback(v_blank_thread_->vBlankTime());
       return 0;
     }
-    case WM_PAINT: return 0;
     case WM_SYSKEYDOWN:
     case WM_KEYDOWN: {
       KeyCode key_code = keyCodeFromScanCode(w_param, l_param);
@@ -1465,6 +1464,10 @@ namespace visage {
     Bounds bounds = computeWindowBounds(x, y, width, height);
     return std::make_unique<WindowWin32>(bounds.x(), bounds.y(), bounds.width(), bounds.height(),
                                          decoration_style);
+  }
+
+  void* headlessWindowHandle() {
+    return nullptr;
   }
 
   std::unique_ptr<Window> createPluginWindow(const Dimension& width, const Dimension& height,

@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include "color.h"
+#include "gradient.h"
 #include "image.h"
 #include "text.h"
 
@@ -79,13 +79,13 @@ namespace visage {
   };
 
   struct BaseShape {
-    BaseShape(const void* batch_id, const ClampBounds& clamp, const QuadColor& color, float x,
+    BaseShape(const void* batch_id, const ClampBounds& clamp, const PackedBrush* brush, float x,
               float y, float width, float height) :
-        batch_id(batch_id), clamp(clamp), color(color), x(x), y(y), width(width), height(height) { }
+        batch_id(batch_id), clamp(clamp), brush(brush), x(x), y(y), width(width), height(height) { }
 
     const void* batch_id = nullptr;
     ClampBounds clamp;
-    QuadColor color;
+    const PackedBrush* brush;
     float x = 0.0f;
     float y = 0.0f;
     float width = 0.0f;
@@ -121,12 +121,12 @@ namespace visage {
     float top = shape.y + y_offset;
     float right = left + shape.width;
     float bottom = top + shape.height;
+    PackedBrush::setVertexGradientPositions(shape.brush, vertices, kVerticesPerQuad, x_offset,
+                                            y_offset, left, top, right, bottom);
 
     for (int i = 0; i < kVerticesPerQuad; ++i) {
       vertices[i].dimension_x = shape.width;
       vertices[i].dimension_y = shape.height;
-      vertices[i].color = shape.color.corners[i];
-      vertices[i].hdr = shape.color.hdr[i];
       vertices[i].clamp_left = clamp.left;
       vertices[i].clamp_top = clamp.top;
       vertices[i].clamp_right = clamp.right;
@@ -147,15 +147,15 @@ namespace visage {
   struct Shape : public BaseShape {
     typedef VertexType Vertex;
 
-    Shape(const void* batch_id, const ClampBounds& clamp, const QuadColor& color, float x, float y,
-          float width, float height) : BaseShape(batch_id, clamp, color, x, y, width, height) { }
+    Shape(const void* batch_id, const ClampBounds& clamp, const PackedBrush* brush, float x, float y,
+          float width, float height) : BaseShape(batch_id, clamp, brush, x, y, width, height) { }
   };
 
   template<typename VertexType = ShapeVertex>
   struct Primitive : public Shape<VertexType> {
-    Primitive(const void* batch_id, const ClampBounds& clamp, const QuadColor& color, float x,
+    Primitive(const void* batch_id, const ClampBounds& clamp, const PackedBrush* brush, float x,
               float y, float width, float height) :
-        Shape<VertexType>(batch_id, clamp, color, x, y, width, height) { }
+        Shape<VertexType>(batch_id, clamp, brush, x, y, width, height) { }
 
     void setPrimitiveData(VertexType* vertices) const {
       float thick = thickness == kFullThickness ? (this->width + this->height) * pixel_width : thickness;
@@ -176,8 +176,8 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    Fill(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
-         float height) : Primitive(batchId(), clamp, color, x, y, width, height) { }
+    Fill(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
+         float height) : Primitive(batchId(), clamp, brush, x, y, width, height) { }
 
     void setVertexData(Vertex* vertices) const { setPrimitiveData(vertices); }
   };
@@ -187,8 +187,8 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    Rectangle(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
-              float height) : Primitive(batchId(), clamp, color, x, y, width, height) { }
+    Rectangle(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
+              float height) : Primitive(batchId(), clamp, brush, x, y, width, height) { }
 
     void setVertexData(Vertex* vertices) const { setPrimitiveData(vertices); }
   };
@@ -198,9 +198,9 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    RoundedRectangle(const ClampBounds& clamp, const QuadColor& color, float x, float y,
+    RoundedRectangle(const ClampBounds& clamp, const PackedBrush* brush, float x, float y,
                      float width, float height, float rounding) :
-        Primitive(batchId(), clamp, color, x, y, width, height), rounding(rounding) { }
+        Primitive(batchId(), clamp, brush, x, y, width, height), rounding(rounding) { }
 
     void setVertexData(Vertex* vertices) const {
       setPrimitiveData(vertices);
@@ -216,8 +216,8 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    Circle(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width) :
-        Primitive(batchId(), clamp, color, x, y, width, width) { }
+    Circle(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width) :
+        Primitive(batchId(), clamp, brush, x, y, width, width) { }
 
     void setVertexData(Vertex* vertices) const { setPrimitiveData(vertices); }
   };
@@ -227,9 +227,9 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    Squircle(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    Squircle(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
              float height, float power) :
-        Primitive(batchId(), clamp, color, x, y, width, height), power(power) { }
+        Primitive(batchId(), clamp, brush, x, y, width, height), power(power) { }
 
     void setVertexData(Vertex* vertices) const {
       setPrimitiveData(vertices);
@@ -245,9 +245,9 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    FlatArc(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    FlatArc(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
             float height, float thickness, float center_radians, float radians) :
-        Primitive(batchId(), clamp, color, x, y, width, height), center_radians(center_radians),
+        Primitive(batchId(), clamp, brush, x, y, width, height), center_radians(center_radians),
         radians(radians) {
       this->thickness = thickness;
     }
@@ -269,9 +269,9 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    RoundedArc(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    RoundedArc(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                float height, float thickness, float center_radians, float radians) :
-        Primitive(batchId(), clamp, color, x, y, width, height), center_radians(center_radians),
+        Primitive(batchId(), clamp, brush, x, y, width, height), center_radians(center_radians),
         radians(radians) {
       this->thickness = thickness;
     }
@@ -293,10 +293,10 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    FlatSegment(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    FlatSegment(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                 float height, float a_x, float a_y, float b_x, float b_y, float thickness,
                 float pixel_width) :
-        Primitive(batchId(), clamp, color, x, y, width, height), a_x(a_x), a_y(a_y), b_x(b_x), b_y(b_y) {
+        Primitive(batchId(), clamp, brush, x, y, width, height), a_x(a_x), a_y(a_y), b_x(b_x), b_y(b_y) {
       this->thickness = thickness;
       this->pixel_width = pixel_width;
     }
@@ -322,10 +322,10 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    RoundedSegment(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
-                   float height, float a_x, float a_y, float b_x, float b_y, float thickness,
-                   float pixel_width) :
-        Primitive(batchId(), clamp, color, x, y, width, height), a_x(a_x), a_y(a_y), b_x(b_x), b_y(b_y) {
+    RoundedSegment(const ClampBounds& clamp, const PackedBrush* brush, float x, float y,
+                   float width, float height, float a_x, float a_y, float b_x, float b_y,
+                   float thickness, float pixel_width) :
+        Primitive(batchId(), clamp, brush, x, y, width, height), a_x(a_x), a_y(a_y), b_x(b_x), b_y(b_y) {
       this->thickness = thickness;
       this->pixel_width = pixel_width;
     }
@@ -346,14 +346,82 @@ namespace visage {
     float b_y = 0.0f;
   };
 
+  struct Triangle : Primitive<ComplexShapeVertex> {
+    VISAGE_CREATE_BATCH_ID
+    static const EmbeddedFile& vertexShader();
+    static const EmbeddedFile& fragmentShader();
+
+    Triangle(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
+             float height, float a_x, float a_y, float b_x, float b_y, float c_x, float c_y,
+             float rounding, float thickness) :
+        Primitive(batchId(), clamp, brush, x, y, width, height), a_x(a_x), a_y(a_y), b_x(b_x),
+        b_y(b_y), c_x(c_x), c_y(c_y) {
+      this->thickness = thickness;
+      this->pixel_width = rounding;
+    }
+
+    void setVertexData(Vertex* vertices) const {
+      setPrimitiveData(vertices);
+      for (int v = 0; v < kVerticesPerQuad; ++v) {
+        vertices[v].value_1 = a_x;
+        vertices[v].value_2 = a_y;
+        vertices[v].value_3 = b_x;
+        vertices[v].value_4 = b_y;
+        vertices[v].value_5 = c_x;
+        vertices[v].value_6 = c_y;
+      }
+    }
+
+    float a_x = 0.0f;
+    float a_y = 0.0f;
+    float b_x = 0.0f;
+    float b_y = 0.0f;
+    float c_x = 0.0f;
+    float c_y = 0.0f;
+  };
+
+  struct QuadraticBezier : Primitive<ComplexShapeVertex> {
+    VISAGE_CREATE_BATCH_ID
+    static const EmbeddedFile& vertexShader();
+    static const EmbeddedFile& fragmentShader();
+
+    QuadraticBezier(const ClampBounds& clamp, const PackedBrush* brush, float x, float y,
+                    float width, float height, float a_x, float a_y, float b_x, float b_y,
+                    float c_x, float c_y, float thickness, float pixel_width) :
+        Primitive(batchId(), clamp, brush, x, y, width, height), a_x(a_x), a_y(a_y), b_x(b_x),
+        b_y(b_y), c_x(c_x), c_y(c_y) {
+      this->thickness = thickness;
+      this->pixel_width = pixel_width;
+    }
+
+    void setVertexData(Vertex* vertices) const {
+      setPrimitiveData(vertices);
+      for (int v = 0; v < kVerticesPerQuad; ++v) {
+        vertices[v].value_1 = a_x;
+        vertices[v].value_2 = a_y;
+        vertices[v].value_3 = b_x;
+        vertices[v].value_4 = b_y;
+        vertices[v].value_5 = c_x;
+        vertices[v].value_6 = c_y;
+      }
+    }
+
+    float a_x = 0.0f;
+    float a_y = 0.0f;
+    float b_x = 0.0f;
+    float b_y = 0.0f;
+    float c_x = 0.0f;
+    float c_y = 0.0f;
+  };
+
   struct Diamond : Primitive<> {
     VISAGE_CREATE_BATCH_ID
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    Diamond(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    Diamond(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
             float height, float rounding) :
-        Primitive(batchId(), clamp, color, x, y, width, height), rounding(rounding) { }
+        Primitive(batchId(), clamp, brush, x, y, width, height), rounding(rounding) { }
 
     void setVertexData(Vertex* vertices) const {
       setPrimitiveData(vertices);
@@ -364,100 +432,26 @@ namespace visage {
     float rounding = 0.0f;
   };
 
-  struct Triangle : Primitive<> {
-    VISAGE_CREATE_BATCH_ID
-    static const EmbeddedFile& vertexShader();
-    static const EmbeddedFile& fragmentShader();
-
-    Triangle(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
-             float height, Direction direction) :
-        Primitive(batchId(), clamp, color, x, y, width, height), direction(direction) { }
-
-    void setVertexData(Vertex* vertices) const {
-      setPrimitiveData(vertices);
-      float value_1 = (direction == Direction::Right || direction == Direction::Down) ? 1.0f : -1.0f;
-      float value_2 = (direction == Direction::Right || direction == Direction::Left) ? 0.0f : 1.0f;
-      for (int v = 0; v < kVerticesPerQuad; ++v) {
-        vertices[v].value_1 = value_1;
-        vertices[v].value_2 = value_2;
-      }
-    }
-
-    Direction direction = Direction::Right;
-  };
-
-  struct Rotary : Shape<RotaryVertex> {
-    VISAGE_CREATE_BATCH_ID
-    static const EmbeddedFile& vertexShader();
-    static const EmbeddedFile& fragmentShader();
-
-    static constexpr float kDefaultMaxRadians = 2.5f;
-
-    Rotary(const ClampBounds& clamp, const QuadColor& color, const QuadColor& back_color,
-           const QuadColor& thumb_color, float x, float y, float width, float value, bool bipolar,
-           float hover_amount, float arc_thickness, float max_radians = kDefaultMaxRadians) :
-        Shape(batchId(), clamp, color, x, y, width, width), back_color(back_color),
-        thumb_color(thumb_color), value(value), bipolar(bipolar), hover_amount(hover_amount),
-        arc_thickness(arc_thickness), max_radians(max_radians) { }
-
-    void setVertexData(Vertex* vertices) const {
-      float bipolar_adjust = bipolar ? 0.0f : -10.0f;
-      for (int v = 0; v < kVerticesPerQuad; ++v) {
-        vertices[v].value_1 = value + bipolar_adjust;
-        vertices[v].value_2 = hover_amount;
-        vertices[v].value_3 = arc_thickness;
-        vertices[v].value_4 = max_radians;
-
-        vertices[v].back_color = back_color.corners[v];
-        vertices[v].thumb_color = thumb_color.corners[v];
-        vertices[v].back_hdr = back_color.hdr[v];
-        vertices[v].thumb_hdr = thumb_color.hdr[v];
-      }
-    }
-
-    QuadColor back_color;
-    QuadColor thumb_color;
-    float value = 0.0f;
-    bool bipolar = false;
-    float hover_amount = 0.0f;
-    float arc_thickness = 0.0f;
-    float max_radians = 0.0f;
-  };
-
   struct ImageWrapper : Shape<TextureVertex> {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    ImageWrapper(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
-                 float height, const ImageFile& image, ImageGroup* image_group) :
-        Shape(image_group, clamp, color, x, y, width, height), image(image), image_group(image_group) {
-      Point dimensions = image_group->incrementImage(image);
+    ImageWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
+                 float height, const ImageFile& image, ImageAtlas* image_atlas) :
+        Shape(image_atlas, clamp, brush, x, y, width, height),
+        packed_image(image_atlas->addImage(image)), image_atlas(image_atlas) {
       if (width == 0.0f && !image.svg) {
-        this->width = dimensions.x;
-        this->height = dimensions.y;
+        this->width = packed_image.w();
+        this->height = packed_image.h();
       }
     }
 
-    ~ImageWrapper() {
-      if (image_group)
-        image_group->decrementImage(image);
-    }
-
-    ImageWrapper(const ImageWrapper&) = delete;
-    ImageWrapper& operator=(const ImageWrapper&) = delete;
-    ImageWrapper& operator=(ImageWrapper&& other) = delete;
-    ImageWrapper(ImageWrapper&& other) noexcept : Shape(std::move(other)) {
-      image = other.image;
-      image_group = other.image_group;
-      other.image_group = nullptr;
-    }
-
     void setVertexData(Vertex* vertices) const {
-      image_group->setImageCoordinates(vertices, image);
+      image_atlas->setImageCoordinates(vertices, packed_image);
     }
 
-    ImageFile image;
-    ImageGroup* image_group = nullptr;
+    ImageAtlas::PackedImage packed_image;
+    ImageAtlas* image_atlas = nullptr;
   };
 
   struct LineWrapper : Shape<> {
@@ -465,9 +459,9 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    LineWrapper(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    LineWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                 float height, Line* line, float line_width) :
-        Shape(batchId(), clamp, color, x, y, width, height), line(line), line_width(line_width) { }
+        Shape(batchId(), clamp, brush, x, y, width, height), line(line), line_width(line_width) { }
 
     Line* line = nullptr;
     float line_width = 0.0f;
@@ -478,9 +472,9 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    LineFillWrapper(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
-                    float height, Line* line, float fill_center) :
-        Shape(batchId(), clamp, color, x, y, width, height), line(line), fill_center(fill_center) { }
+    LineFillWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y,
+                    float width, float height, Line* line, float fill_center) :
+        Shape(batchId(), clamp, brush, x, y, width, height), line(line), fill_center(fill_center) { }
 
     Line* line = nullptr;
     float fill_center = 0.0f;
@@ -537,9 +531,9 @@ namespace visage {
   };
 
   struct TextBlock : Shape<TextureVertex> {
-    TextBlock(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    TextBlock(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
               float height, Text* text, Direction direction) :
-        Shape(text->font().packedFont(), clamp, color, x, y, width, height), text(text),
+        Shape(text->font().packedFont(), clamp, brush, x, y, width, height), text(text),
         direction(direction) {
       quads = VectorPool<FontAtlasQuad>::instance().vector(text->text().length());
       this->clamp = clamp.clamp(x, y, width, height);
@@ -609,9 +603,9 @@ namespace visage {
   };
 
   struct ShaderWrapper : Shape<> {
-    ShaderWrapper(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    ShaderWrapper(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                   float height, Shader* shader) :
-        Shape(shader, clamp, color, x, y, width, height), shader(shader) { }
+        Shape(shader, clamp, brush, x, y, width, height), shader(shader) { }
 
     static void setVertexData(Vertex* vertices) { setCornerCoordinates(vertices); }
 
@@ -622,7 +616,7 @@ namespace visage {
     static const EmbeddedFile& vertexShader();
     static const EmbeddedFile& fragmentShader();
 
-    SampleRegion(const ClampBounds& clamp, const QuadColor& color, float x, float y, float width,
+    SampleRegion(const ClampBounds& clamp, const PackedBrush* brush, float x, float y, float width,
                  float height, const Region* region, PostEffect* post_effect = nullptr);
 
     void setVertexData(Vertex* vertices) const;

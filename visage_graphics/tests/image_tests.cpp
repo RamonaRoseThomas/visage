@@ -19,30 +19,28 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
-#include "bar_list.h"
+#include "visage_graphics/image.h"
 
-#include "visage_graphics/theme.h"
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <memory>
+#include <random>
 
-namespace visage {
-  THEME_IMPLEMENT_COLOR(BarList, BarColor, 0xffaa88ff);
+using namespace visage;
+using namespace Catch;
 
-  BarList::BarList(int num_bars) : num_bars_(num_bars) {
-    bars_ = std::make_unique<Bar[]>(num_bars);
+TEST_CASE("Image blur", "[graphics]") {
+  static constexpr int kWidth = 128;
+  static constexpr int kHeight = 64;
+  auto image = std::make_unique<unsigned char[]>((kWidth * kHeight + 2) * ImageAtlas::kChannels);
+  auto start_image = image.get() + ImageAtlas::kChannels;
+  for (int i = 0; i < kWidth * kHeight * ImageAtlas::kChannels; i++) {
+    start_image[i] = 255;
   }
 
-  void BarList::draw(Canvas& canvas) {
-    canvas.setColor(BarColor);
-
-    float width_scale = 1.0f / width();
-    float height_scale = 1.0f / height();
-    for (int i = 0; i < num_bars_; ++i) {
-      const Bar& bar = bars_[i];
-      float left = bar.left * width_scale;
-      float right = bar.right * width_scale;
-      float top = bar.top * height_scale;
-      float bottom = bar.bottom * height_scale;
-
-      canvas.rectangle(bar.left, bar.top, bar.right - bar.left, bar.bottom - bar.top);
-    }
+  ImageAtlas::blurImage(start_image, kWidth, kHeight, 48);
+  for (int i = 0; i < ImageAtlas::kChannels; i++) {
+    REQUIRE(image[i] == 0);
+    REQUIRE(image[(kWidth * kHeight + 1) * ImageAtlas::kChannels + i] == 0);
   }
 }

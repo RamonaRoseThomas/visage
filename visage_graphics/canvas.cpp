@@ -25,9 +25,11 @@
 #include "theme.h"
 
 #include <bgfx/bgfx.h>
+#include <bimg/bimg.h>
+#include <bx/file.h>
 
 namespace visage {
-  Canvas::Canvas() {
+  Canvas::Canvas() : composite_layer_(&gradient_atlas_) {
     state_.current_region = &default_region_;
     layers_.push_back(&composite_layer_);
     composite_layer_.addRegion(&window_region_);
@@ -63,25 +65,48 @@ namespace visage {
       submission = composite_layer_.submit(submission);
       render_frame_++;
       bgfx::frame();
+
       FontCache::clearStaleFonts();
+      gradient_atlas_.clearStaleGradients();
+      image_atlas_.clearStaleImages();
+      if (!screenshot_filename_.empty())
+        saveScreenshot();
     }
     return submission;
   }
 
   void Canvas::takeScreenshot(const std::string& filename) {
-    bgfx::requestScreenShot(composite_layer_.frameBuffer(), filename.c_str());
+    screenshot_filename_ = filename;
+    composite_layer_.takeScreenshot(filename);
+  }
+
+  void Canvas::saveScreenshot() {
+    if (screenshot_filename_.empty())
+      return;
+    std::unique_ptr<uint8_t[]> data = composite_layer_.screenshotData();
+    if (data) {
+      bx::FileWriter writer;
+      bx::Error error;
+      if (bx::open(&writer, screenshot_filename_.c_str(), false, &error)) {
+        bimg::imageWritePng(&writer, composite_layer_.width(), composite_layer_.height(),
+                            composite_layer_.width() * 4, data.get(), bimg::TextureFormat::RGBA8,
+                            composite_layer_.bottomLeftOrigin(), &error);
+        bx::close(&writer);
+      }
+    }
+    screenshot_filename_ = "";
   }
 
   void Canvas::ensureLayerExists(int layer) {
     int layers_to_add = layer + 1 - layers_.size();
     for (int i = 0; i < layers_to_add; ++i) {
-      intermediate_layers_.push_back(std::make_unique<Layer>());
+      intermediate_layers_.push_back(std::make_unique<Layer>(&gradient_atlas_));
       intermediate_layers_.back()->setIntermediateLayer(true);
       layers_.push_back(intermediate_layers_.back().get());
     }
   }
 
-  void Canvas::invalidateRectInRegion(Bounds rect, Region* region, int layer) {
+  void Canvas::invalidateRectInRegion(Bounds rect, const Region* region, int layer) {
     ensureLayerExists(layer);
     layers_[layer]->invalidateRectInRegion(rect, region);
   }
@@ -106,9 +131,9 @@ namespace visage {
     addToPackedLayer(region, to);
   }
 
-  QuadColor Canvas::color(theme::ColorId color_id) {
+  Brush Canvas::color(theme::ColorId color_id) {
     if (palette_) {
-      QuadColor result;
+      Brush result;
       theme::OverrideId last_check;
       for (auto it = state_memory_.rbegin(); it != state_memory_.rend(); ++it) {
         theme::OverrideId override_id = it->palette_override;
@@ -120,7 +145,7 @@ namespace visage {
         return result;
     }
 
-    return theme::ColorId::defaultColor(color_id);
+    return Brush::solid(theme::ColorId::defaultColor(color_id));
   }
 
   float Canvas::value(theme::ValueId value_id) {

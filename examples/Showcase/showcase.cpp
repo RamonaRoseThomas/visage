@@ -26,6 +26,7 @@
 
 #include <visage/app.h>
 #include <visage/graphics.h>
+#include <visage/utils.h>
 #include <visage/widgets.h>
 
 using namespace visage::dimension;
@@ -74,8 +75,8 @@ void Overlay::draw(visage::Canvas& canvas) {
   if (!animation_.isTargeting() && overlay_amount == 0.0f)
     setVisible(false);
 
-  visage::Bounds body = getBodyBounds();
-  float rounding = getBodyRounding();
+  visage::Bounds body = bodyBounds();
+  float rounding = bodyRounding();
   canvas.setColor(OverlayBody);
   canvas.roundedRectangle(body.x(), body.y(), body.width(), body.height(), rounding);
 
@@ -88,14 +89,14 @@ void Overlay::draw(visage::Canvas& canvas) {
     redraw();
 }
 
-visage::Bounds Overlay::getBodyBounds() const {
+visage::Bounds Overlay::bodyBounds() const {
   int x_border = width() / 4;
   int y_border = height() / 4;
 
   return { x_border, y_border, width() - 2 * x_border, height() - 2 * y_border };
 }
 
-float Overlay::getBodyRounding() {
+float Overlay::bodyRounding() {
   return paletteValue(OverlayRounding);
 }
 
@@ -112,7 +113,7 @@ Showcase::Showcase() : palette_color_window_(&palette_), palette_value_window_(&
   examples_->onShowOverlay() = [this] { overlay_.setVisible(true); };
   examples_->onToggleDebug() = [this]() { toggleDebug(); };
 
-  examples_->onScrenshot() = [this](const std::string& file_path) {
+  examples_->onScreenshot() = [this](const std::string& file_path) {
     visage::ApplicationEditor* parent = findParent<visage::ApplicationEditor>();
     if (parent)
       parent->takeScreenshot(file_path);
@@ -145,9 +146,7 @@ void Showcase::resized() {
   int main_width = w;
 
   debug_info_->setBounds(0, 0, main_width, h);
-
   examples_->setBounds(0, 0, main_width, h);
-
   overlay_.setBounds(examples_->bounds());
 }
 
@@ -209,6 +208,5 @@ int runExample() {
   else
     editor.show(100_vmin, 70_vmin);
   editor.runEventLoop();
-
   return 0;
 }

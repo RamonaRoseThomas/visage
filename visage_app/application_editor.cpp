@@ -93,11 +93,11 @@ namespace visage {
 
   ApplicationEditor::~ApplicationEditor() {
     top_level_.setEventHandler(nullptr);
-    top_level_.removeAllChildren();
   }
 
   void ApplicationEditor::takeScreenshot(const std::string& filename) {
     canvas_->takeScreenshot(filename);
+    drawWindow();
   }
 
   void ApplicationEditor::setCanvasDetails() {
@@ -134,6 +134,16 @@ namespace visage {
 #endif
   }
 
+  void ApplicationEditor::setWindowless(int width, int height) {
+    canvas_->removeFromWindow();
+    window_ = nullptr;
+    pixel_scale_ = 1.0f;
+    Renderer::instance().checkInitialization(headlessWindowHandle(), nullptr);
+    setBounds(0, 0, width, height);
+    canvas_->setWindowless(width, height);
+    drawWindow();
+  }
+
   void ApplicationEditor::removeFromWindow() {
     pixel_scale_ = windowPixelScale();
     window_event_handler_ = nullptr;
@@ -142,7 +152,10 @@ namespace visage {
   }
 
   void ApplicationEditor::drawWindow() {
-    if (window_ == nullptr || !window_->isVisible())
+    if (window_ && !window_->isVisible())
+      return;
+
+    if (width() == 0 || height() == 0)
       return;
 
     if (!initialized())

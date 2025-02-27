@@ -1,9 +1,8 @@
-$input a_position, a_texcoord0, a_texcoord1, a_color0, a_color1
-$output v_texture_uv, v_color0
+$input a_position, a_texcoord0, a_texcoord1
+$output v_texture_uv
 
 #include <shader_include.sh>
 
-uniform vec4 u_color_mult;
 uniform vec4 u_bounds;
 uniform vec4 u_atlas_scale;
 uniform vec4 u_origin_flip;
@@ -18,6 +17,4 @@ void main() {
   v_texture_uv = flip * ((a_texcoord0.xy * flip + delta) * u_atlas_scale.xy);
   vec2 adjusted_position = clamped * u_bounds.xy + u_bounds.zw;
   gl_Position = vec4(adjusted_position, 0.5, 1.0);
-  v_color0 = a_color0 * a_color1.x * u_color_mult.x;
-  v_color0.a = a_color0.a;
 }

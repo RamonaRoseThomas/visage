@@ -66,28 +66,6 @@ namespace visage {
     }
   }
 
-  static void blurImage(unsigned char* location, int width, int height, int blur_radius) {
-    static constexpr int kBoxBlurIterations = 3;
-
-    int radius = std::min(blur_radius, width - 1);
-    radius = radius + ((radius + 1) % 2);
-
-    std::unique_ptr<unsigned char[]> cache = std::make_unique<unsigned char[]>(radius);
-
-    for (int r = 0; r < height; ++r) {
-      for (int channel = 0; channel < ImageGroup::kChannels; ++channel) {
-        for (int i = 0; i < kBoxBlurIterations; ++i)
-          boxBlur(location + r * width * ImageGroup::kChannels + channel, cache.get(), width,
-                  radius, ImageGroup::kChannels);
-      }
-    }
-
-    for (int c = 0; c < width * ImageGroup::kChannels; ++c) {
-      for (int i = 0; i < kBoxBlurIterations; ++i)
-        boxBlur(location + c, cache.get(), width, radius, width * ImageGroup::kChannels);
-    }
-  }
-
   class SvgRasterizer {
   public:
     static SvgRasterizer& instance() {
@@ -104,7 +82,7 @@ namespace visage {
 
       NSVGimage* image = nsvgParse(copy.get(), "px", 96);
       std::unique_ptr<unsigned char[]> data = std::make_unique<unsigned char[]>(svg.width * svg.height *
-                                                                                ImageGroup::kChannels);
+                                                                                ImageAtlas::kChannels);
 
       float width_scale = svg.width / image->width;
       float height_scale = svg.height / image->height;
@@ -113,7 +91,7 @@ namespace visage {
       float y_offset = (svg.height - image->height * scale) * 0.5f;
 
       nsvgRasterize(rasterizer_, image, x_offset, y_offset, scale, data.get(), svg.width,
-                    svg.height, svg.width * ImageGroup::kChannels);
+                    svg.height, svg.width * ImageAtlas::kChannels);
       nsvgDelete(image);
       return data;
     }
@@ -124,11 +102,11 @@ namespace visage {
     NSVGrasterizer* rasterizer_ = nullptr;
   };
 
-  class ImageGroupTexture {
+  class ImageAtlasTexture {
   public:
-    explicit ImageGroupTexture(int width, int height) : width_(width), height_(height) { }
+    explicit ImageAtlasTexture(int width, int height) : width_(width), height_(height) { }
 
-    ~ImageGroupTexture() { destroyHandle(); }
+    ~ImageAtlasTexture() { destroyHandle(); }
 
     void destroyHandle() {
       if (bgfx::isValid(texture_handle_))
@@ -149,7 +127,7 @@ namespace visage {
     void updateTexture(const unsigned char* data, int x, int y, int width, int height) {
       VISAGE_ASSERT(bgfx::isValid(texture_handle_));
       bgfx::updateTexture2D(texture_handle_, 0, 0, x, y, width, height,
-                            bgfx::copy(data, width * height * ImageGroup::kChannels));
+                            bgfx::copy(data, width * height * ImageAtlas::kChannels));
     }
 
   private:
@@ -158,78 +136,108 @@ namespace visage {
     bgfx::TextureHandle texture_handle_ = BGFX_INVALID_HANDLE;
   };
 
-  ImageGroup::ImageGroup() {
-    atlas_.setPadding(kImageBuffer);
-  }
+  void ImageAtlas::blurImage(unsigned char* location, int width, int height, int blur_radius) {
+    static constexpr int kBoxBlurIterations = 3;
 
-  void ImageGroup::setNewSize() {
-    for (auto count = image_count_.begin(); count != image_count_.end();) {
-      if (count->second == 0) {
-        atlas_.removeRect(count->first);
-        count = image_count_.erase(count);
+    int radius = std::min(blur_radius, width - 1);
+    radius = radius + ((radius + 1) % 2);
+
+    std::unique_ptr<unsigned char[]> cache = std::make_unique<unsigned char[]>(radius);
+
+    for (int r = 0; r < height; ++r) {
+      for (int channel = 0; channel < ImageAtlas::kChannels; ++channel) {
+        for (int i = 0; i < kBoxBlurIterations; ++i)
+          boxBlur(location + r * width * ImageAtlas::kChannels + channel, cache.get(), width,
+                  radius, ImageAtlas::kChannels);
       }
-      else
-        ++count;
     }
 
-    atlas_.pack();
-    texture_ = std::make_unique<ImageGroupTexture>(atlas_.width(), atlas_.height());
+    for (int c = 0; c < width * ImageAtlas::kChannels; ++c) {
+      for (int i = 0; i < kBoxBlurIterations; ++i)
+        boxBlur(location + c, cache.get(), height, radius, width * ImageAtlas::kChannels);
+    }
   }
 
-  ImageGroup::~ImageGroup() = default;
+  ImageAtlas::PackedImageReference::~PackedImageReference() {
+    if (auto atlas_pointer = atlas.lock())
+      (*atlas_pointer)->removeImage(packed_image_rect);
+  }
 
-  bool ImageGroup::packImage(const ImageFile& image) {
-    int width = image.width;
-    int height = image.height;
-    if (image.width == 0 && !image.svg) {
-      bimg::ImageContainer* image_container = bimg::imageParse(allocator(), image.data, image.data_size);
-      if (image_container) {
-        width = image_container->m_width;
-        height = image_container->m_height;
+  ImageAtlas::ImageAtlas() {
+    reference_ = std::make_shared<ImageAtlas*>(this);
+    atlas_map_.setPadding(kImageBuffer);
+  }
+
+  ImageAtlas::~ImageAtlas() = default;
+
+  ImageAtlas::PackedImage ImageAtlas::addImage(const ImageFile& image) {
+    if (images_.count(image) == 0) {
+      int width = image.width;
+      int height = image.height;
+      if (image.width == 0 && !image.svg) {
+        bimg::ImageContainer* image_container = bimg::imageParse(allocator(), image.data, image.data_size);
+        if (image_container) {
+          width = image_container->m_width;
+          height = image_container->m_height;
+        }
+        bimg::imageFree(image_container);
       }
-      bimg::imageFree(image_container);
+
+      std::unique_ptr<PackedImageRect> packed_image_rect = std::make_unique<PackedImageRect>(image);
+      if (!atlas_map_.addRect(packed_image_rect.get(), width, height))
+        resize();
+
+      loadImageRect(packed_image_rect.get());
+      updateImage(packed_image_rect.get());
+      images_[image] = std::move(packed_image_rect);
     }
-    return atlas_.addRect(image, width, height);
+    stale_images_.erase(image);
+
+    if (auto reference = references_[image].lock())
+      return PackedImage(reference);
+
+    auto reference = std::make_shared<PackedImageReference>(reference_, images_[image].get());
+    references_[image] = reference;
+    return PackedImage(reference);
   }
 
-  void ImageGroup::decrementImage(const ImageFile& image) {
-    image_count_[image]--;
-    VISAGE_ASSERT(image_count_[image] >= 0);
+  void ImageAtlas::resize() {
+    clearStaleImages();
+
+    atlas_map_.pack();
+    texture_ = std::make_unique<ImageAtlasTexture>(atlas_map_.width(), atlas_map_.height());
+    for (auto& image : images_)
+      loadImageRect(image.second.get());
   }
 
-  Point ImageGroup::incrementImage(const ImageFile& image) {
-    bool added = image_count_.count(image);
-    image_count_[image]++;
-    if (added) {
-      PackedRect packed_rect = atlas_.rectForId(image);
-      return { packed_rect.w, packed_rect.h };
-    }
-
-    if (!packImage(image))
-      setNewSize();
-    else if (texture_->hasHandle())
-      drawImage(image);
-
-    PackedRect packed_rect = atlas_.rectForId(image);
-    return { packed_rect.w, packed_rect.h };
+  void ImageAtlas::loadImageRect(PackedImageRect* packed_image_rect) const {
+    const PackedRect& rect = atlas_map_.rectForId(packed_image_rect);
+    packed_image_rect->x = rect.x;
+    packed_image_rect->y = rect.y;
+    packed_image_rect->w = rect.w;
+    packed_image_rect->h = rect.h;
   }
 
-  void ImageGroup::drawImage(const ImageFile& image) const {
-    if (image.width == 0 && image.svg)
+  void ImageAtlas::updateImage(const PackedImageRect* image) const {
+    if (image->w == 0 && image->image.svg)
       return;
 
-    PackedRect packed_rect = atlas_.rectForId(image);
-    if (image.svg) {
-      std::unique_ptr<unsigned char[]> data = SvgRasterizer::instance().rasterize(image);
+    if (texture_ == nullptr || !bgfx::isValid(texture_->handle()))
+      return;
 
-      if (image.blur_radius)
-        blurImage(data.get(), image.width, image.height, image.blur_radius);
+    PackedRect packed_rect = atlas_map_.rectForId(image);
+    if (image->image.svg) {
+      std::unique_ptr<unsigned char[]> data = SvgRasterizer::instance().rasterize(image->image);
+
+      if (image->image.blur_radius)
+        blurImage(data.get(), image->image.width, image->image.height, image->image.blur_radius);
 
       texture_->updateTexture(data.get(), packed_rect.x, packed_rect.y, packed_rect.w, packed_rect.h);
     }
     else {
-      bimg::ImageContainer* image_container = bimg::imageParse(allocator(), image.data, image.data_size,
-                                                               bimg::TextureFormat::BGRA8);
+      bimg::ImageContainer* image_container = bimg::imageParse(allocator(), image->image.data,
+                                                               image->image.data_size,
+                                                               bimg::TextureFormat::RGBA8);
       if (image_container) {
         unsigned char* image_data = static_cast<unsigned char*>(image_container->m_data);
         if (image_container->m_width == packed_rect.w && image_container->m_height == packed_rect.h) {
@@ -250,20 +258,31 @@ namespace visage {
     }
   }
 
-  const bgfx::TextureHandle& ImageGroup::textureHandle() const {
+  const bgfx::TextureHandle& ImageAtlas::textureHandle() const {
     if (!texture_->hasHandle()) {
       texture_->checkHandle();
-      for (auto& icon : image_count_)
-        drawImage(icon.first);
+      for (auto& image : images_)
+        updateImage(image.second.get());
     }
     return texture_->handle();
   }
 
-  void ImageGroup::setImageCoordinates(TextureVertex* vertices, const ImageFile& image) const {
-    VISAGE_ASSERT(image_count_.count(image) && image_count_.at(image) > 0);
-    atlas_.setTexturePositionsForId(image, vertices);
+  void ImageAtlas::setImageCoordinates(TextureVertex* vertices, const PackedImage& image) const {
+    float left = image.x();
+    float top = image.y();
+    float right = left + image.w();
+    float bottom = top + image.h();
 
-    for (int i = 0; i < kChannels; ++i) {
+    vertices[0].texture_x = left;
+    vertices[0].texture_y = top;
+    vertices[1].texture_x = right;
+    vertices[1].texture_y = top;
+    vertices[2].texture_x = left;
+    vertices[2].texture_y = bottom;
+    vertices[3].texture_x = right;
+    vertices[3].texture_y = bottom;
+
+    for (int i = 0; i < kVerticesPerQuad; ++i) {
       vertices[i].direction_x = 1.0f;
       vertices[i].direction_y = 0.0f;
     }

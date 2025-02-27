@@ -22,14 +22,13 @@
 #include "layer.h"
 
 #include "canvas.h"
-#include "palette.h"
 #include "region.h"
-#include "theme.h"
 
 #include <bgfx/bgfx.h>
 
 namespace visage {
   struct FrameBufferData {
+    bgfx::TextureHandle read_back_handle = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle handle = BGFX_INVALID_HANDLE;
     bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
   };
@@ -132,8 +131,9 @@ namespace visage {
     return next_batch;
   }
 
-  Layer::Layer() {
+  Layer::Layer(GradientAtlas* gradient_atlas) : gradient_atlas_(gradient_atlas) {
     frame_buffer_data_ = std::make_unique<FrameBufferData>();
+    clear_brush_ = std::make_unique<const PackedBrush>(gradient_atlas, Brush::solid(0));
   }
 
   Layer::~Layer() {
@@ -157,6 +157,11 @@ namespace visage {
                                                            frame_buffer_data_->format);
     }
     else {
+      if (headless_render_) {
+        uint64_t flags = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK;
+        frame_buffer_data_->read_back_handle = bgfx::createTexture2D(width_, height_, false, 1,
+                                                                     bgfx::TextureFormat::RGBA8, flags);
+      }
       frame_buffer_data_->handle = bgfx::createFrameBuffer(width_, height_, frame_buffer_data_->format,
                                                            kFrameBufferFlags);
     }
@@ -207,7 +212,6 @@ namespace visage {
 
   void Layer::clearInvalidRectAreas(int submit_pass) {
     ShapeBatch<Fill> clear_batch(BlendMode::Opaque);
-    QuadColor color;
     std::vector<Bounds> invalid_rects;
     for (auto& region_invalid_rects : invalid_rects_) {
       for (const Bounds& rect : region_invalid_rects.second) {
@@ -216,7 +220,7 @@ namespace visage {
         float y = rect.y();
         float width = rect.width();
         float height = rect.height();
-        clear_batch.addShape(Fill({ x, y, x + width, y + height }, color, x, y, width, height));
+        clear_batch.addShape(Fill({ x, y, x + width, y + height }, clear_brush_.get(), x, y, width, height));
       }
     }
 
@@ -289,6 +293,12 @@ namespace visage {
       current_blend_mode = next_batch->blendMode();
     }
 
+    if (screenshot_data_ && bgfx::isValid(frame_buffer_data_->read_back_handle)) {
+      bgfx::blit(submit_pass, frame_buffer_data_->read_back_handle, 0, 0,
+                 bgfx::getTexture(frame_buffer_data_->handle), 0, 0, width_, height_);
+      bgfx::readTexture(frame_buffer_data_->read_back_handle, screenshot_data_.get());
+    }
+
     submit_pass = submit_pass + 1;
     for (Region* region : regions_) {
       if (region->postEffect())
@@ -307,21 +317,21 @@ namespace visage {
 
   void Layer::addPackedRegion(Region* region) {
     addRegion(region);
-    if (!atlas_.addRect(region, region->width(), region->height())) {
+    if (!atlas_map_.addRect(region, region->width(), region->height())) {
+      atlas_map_.pack();
       invalidate();
-      atlas_.pack();
-      setDimensions(atlas_.width(), atlas_.height());
+      setDimensions(atlas_map_.width(), atlas_map_.height());
     }
   }
 
   void Layer::removePackedRegion(Region* region) {
     removeRegion(region);
-    atlas_.removeRect(region);
+    atlas_map_.removeRect(region);
   }
 
   Bounds Layer::boundsForRegion(const Region* region) const {
     if (intermediate_layer_) {
-      const PackedRect& rect = atlas_.rectForId(region);
+      const PackedRect& rect = atlas_map_.rectForId(region);
       return { rect.x, rect.y, rect.w, rect.h };
     }
     return { region->x(), region->y(), region->width(), region->height() };
@@ -329,9 +339,16 @@ namespace visage {
 
   Point Layer::coordinatesForRegion(const Region* region) const {
     if (intermediate_layer_) {
-      const PackedRect& rect = atlas_.rectForId(region);
+      const PackedRect& rect = atlas_map_.rectForId(region);
       return { rect.x, rect.y };
     }
     return { region->x(), region->y() };
+  }
+
+  void Layer::takeScreenshot(const std::string& filename) {
+    if (headless_render_)
+      screenshot_data_ = std::make_unique<uint8_t[]>(width_ * height_ * 4);
+    else
+      bgfx::requestScreenShot(frameBuffer(), filename.c_str());
   }
 }

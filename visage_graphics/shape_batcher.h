@@ -89,7 +89,6 @@ namespace visage {
   }
 
   void setUniformDimensions(int width, int height);
-  void setColorMult(bool hdr);
   void setOriginFlipUniform(bool origin_flip);
   void setBlendMode(BlendMode draw_state);
 
@@ -232,7 +231,7 @@ namespace visage {
 
   class SubmitBatch {
   public:
-    SubmitBatch(BlendMode blend_mode) : blend_mode_(blend_mode) { }
+    explicit SubmitBatch(BlendMode blend_mode) : blend_mode_(blend_mode) { }
     virtual ~SubmitBatch() = default;
     virtual void clear() = 0;
     virtual void submit(Layer& layer, int submit_pass, const std::vector<PositionedBatch>& others) = 0;
@@ -291,7 +290,7 @@ namespace visage {
   template<typename T>
   class ShapeBatch : public SubmitBatch {
   public:
-    ShapeBatch(BlendMode blend_mode) : SubmitBatch(blend_mode) { }
+    explicit ShapeBatch(BlendMode blend_mode) : SubmitBatch(blend_mode) { }
     ~ShapeBatch() override = default;
 
     void clear() override {

@@ -25,6 +25,7 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace bgfx {
@@ -72,6 +73,13 @@ namespace visage {
     int h;
   };
 
+  struct TextureRect {
+    int left;
+    int top;
+    int right;
+    int bottom;
+  };
+
   class AtlasPacker {
   public:
     AtlasPacker();
@@ -93,7 +101,7 @@ namespace visage {
   };
 
   template<typename T = int>
-  class PackedAtlas {
+  class PackedAtlasMap {
   public:
     bool addRect(T id, int width, int height) {
       VISAGE_ASSERT(lookup_.count(id) == 0);
@@ -104,14 +112,16 @@ namespace visage {
       return packer_.addRect(packed_rects_.back());
     }
 
+    bool hasId(T id) const { return lookup_.count(id) > 0; }
+
     void removeRect(T id) {
       VISAGE_ASSERT(lookup_.count(id) > 0);
       lookup_.erase(id);
     }
 
     void pack() {
-      static constexpr int kDefaultWidth = 256;
-      static constexpr int kMaxMultiples = 6;
+      static constexpr int kDefaultWidth = 64;
+      static constexpr int kMaxMultiples = 8;
 
       checkRemovedRects();
       bool packed = false;
@@ -143,23 +153,16 @@ namespace visage {
       return packed_rects_[index];
     }
 
-    template<typename V>
-    void setTexturePositionsForIndex(int rect_index, V* vertices, bool bottom_left_origin = false) const {
+    TextureRect texturePositionsForIndex(int rect_index, bool bottom_left_origin = false) const {
       const PackedRect& packed_rect = rectAtIndex(rect_index);
-
-      vertices[0].texture_x = packed_rect.x;
-      vertices[0].texture_y = packed_rect.y;
-      vertices[1].texture_x = packed_rect.x + packed_rect.w;
-      vertices[1].texture_y = packed_rect.y;
-      vertices[2].texture_x = packed_rect.x;
-      vertices[2].texture_y = packed_rect.y + packed_rect.h;
-      vertices[3].texture_x = packed_rect.x + packed_rect.w;
-      vertices[3].texture_y = packed_rect.y + packed_rect.h;
+      TextureRect result = { packed_rect.x, packed_rect.y, packed_rect.x + packed_rect.w,
+                             packed_rect.y + packed_rect.h };
 
       if (bottom_left_origin) {
-        for (int i = 0; i < kVerticesPerQuad; ++i)
-          vertices[i].texture_y = height_ - vertices[i].texture_y;
+        result.top = height_ - result.top;
+        result.bottom = height_ - result.bottom;
       }
+      return result;
     }
 
     const PackedRect& rectForId(T id) const {
@@ -167,10 +170,9 @@ namespace visage {
       return rectAtIndex(lookup_.at(id));
     }
 
-    template<typename V>
-    void setTexturePositionsForId(T id, V* vertices, bool bottom_left_origin = false) const {
+    TextureRect texturePositionsForId(T id, bool bottom_left_origin = false) const {
       VISAGE_ASSERT(lookup_.count(id) > 0);
-      setTexturePositionsForIndex(lookup_.at(id), vertices, bottom_left_origin);
+      return texturePositionsForIndex(lookup_.at(id), bottom_left_origin);
     }
 
     int width() const { return width_; }
@@ -220,6 +222,14 @@ namespace visage {
   struct ShapeVertex {
     float x;
     float y;
+    float gradient_color_from_x;
+    float gradient_color_from_y;
+    float gradient_color_to_x;
+    float gradient_color_to_y;
+    float gradient_position_from_x;
+    float gradient_position_from_y;
+    float gradient_position_to_x;
+    float gradient_position_to_y;
     float coordinate_x;
     float coordinate_y;
     float dimension_x;
@@ -228,8 +238,6 @@ namespace visage {
     float clamp_top;
     float clamp_right;
     float clamp_bottom;
-    uint32_t color;
-    float hdr;
     float thickness;
     float fade;
     float value_1;
@@ -241,6 +249,14 @@ namespace visage {
   struct ComplexShapeVertex {
     float x;
     float y;
+    float gradient_color_from_x;
+    float gradient_color_from_y;
+    float gradient_color_to_x;
+    float gradient_color_to_y;
+    float gradient_position_from_x;
+    float gradient_position_from_y;
+    float gradient_position_to_x;
+    float gradient_position_to_y;
     float coordinate_x;
     float coordinate_y;
     float dimension_x;
@@ -249,8 +265,6 @@ namespace visage {
     float clamp_top;
     float clamp_right;
     float clamp_bottom;
-    uint32_t color;
-    float hdr;
     float thickness;
     float fade;
     float value_1;
@@ -268,6 +282,14 @@ namespace visage {
     float y;
     float dimension_x;
     float dimension_y;
+    float gradient_color_from_x;
+    float gradient_color_from_y;
+    float gradient_color_to_x;
+    float gradient_color_to_y;
+    float gradient_position_from_x;
+    float gradient_position_from_y;
+    float gradient_position_to_x;
+    float gradient_position_to_y;
     float texture_x;
     float texture_y;
     float direction_x;
@@ -276,8 +298,6 @@ namespace visage {
     float clamp_top;
     float clamp_right;
     float clamp_bottom;
-    uint32_t color;
-    float hdr;
 
     static bgfx::VertexLayout& layout();
   };
@@ -287,6 +307,14 @@ namespace visage {
     float y;
     float dimension_x;
     float dimension_y;
+    float gradient_color_from_x;
+    float gradient_color_from_y;
+    float gradient_color_to_x;
+    float gradient_color_to_y;
+    float gradient_position_from_x;
+    float gradient_position_from_y;
+    float gradient_position_to_x;
+    float gradient_position_to_y;
     float texture_x;
     float texture_y;
     float clamp_left;
@@ -295,33 +323,6 @@ namespace visage {
     float clamp_bottom;
     float shader_value1;
     float shader_value2;
-    uint32_t color;
-    float hdr;
-
-    static bgfx::VertexLayout& layout();
-  };
-
-  struct RotaryVertex {
-    float x;
-    float y;
-    float coordinate_x;
-    float coordinate_y;
-    float dimension_x;
-    float dimension_y;
-    float clamp_left;
-    float clamp_top;
-    float clamp_right;
-    float clamp_bottom;
-    uint32_t color;
-    uint32_t back_color;
-    uint32_t thumb_color;
-    float hdr;
-    float back_hdr;
-    float thumb_hdr;
-    float value_1;
-    float value_2;
-    float value_3;
-    float value_4;
 
     static bgfx::VertexLayout& layout();
   };

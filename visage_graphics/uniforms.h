@@ -34,16 +34,15 @@ namespace visage {
     static constexpr char kAtlasScale2[] = "u_atlas_scale2";
     static constexpr char kCenterPosition[] = "u_center_position";
     static constexpr char kDimensions[] = "u_dimensions";
-    static constexpr char kTopLeftColor[] = "u_top_left_color";
-    static constexpr char kTopRightColor[] = "u_top_right_color";
-    static constexpr char kBottomLeftColor[] = "u_bottom_left_color";
-    static constexpr char kBottomRightColor[] = "u_bottom_right_color";
     static constexpr char kLineWidth[] = "u_line_width";
     static constexpr char kResampleValues[] = "u_resample_values";
     static constexpr char kResampleValues2[] = "u_resample_values2";
     static constexpr char kThreshold[] = "u_threshold";
     static constexpr char kPixelSize[] = "u_pixel_size";
+    static constexpr char kGradient[] = "s_gradient";
     static constexpr char kTexture[] = "s_texture";
     static constexpr char kTexture2[] = "s_texture2";
+    static constexpr char kGradientColorPosition[] = "u_gradient_color_position";
+    static constexpr char kGradientPosition[] = "u_gradient_position";
   };
 }

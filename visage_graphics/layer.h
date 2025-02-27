@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "gradient.h"
 #include "graphics_utils.h"
 #include "visage_utils/space.h"
 
@@ -32,7 +33,7 @@ namespace visage {
   public:
     static constexpr int kInvalidRectMemory = 2;
 
-    Layer();
+    explicit Layer(GradientAtlas* gradient_atlas);
     ~Layer();
 
     void checkFrameBuffer();
@@ -40,6 +41,8 @@ namespace visage {
 
     bgfx::FrameBufferHandle& frameBuffer() const;
     int frameBufferFormat() const;
+
+    GradientAtlas* gradientAtlas() const { return gradient_atlas_; }
 
     void clearInvalidRectAreas(int submit_pass);
     int submit(int submit_pass);
@@ -56,7 +59,16 @@ namespace visage {
 
     template<typename V>
     void setTexturePositionsForRegion(const Region* region, V* vertices) const {
-      atlas_.setTexturePositionsForId(region, vertices, bottom_left_origin_);
+      TextureRect rect = atlas_map_.texturePositionsForId(region, bottom_left_origin_);
+
+      vertices[0].texture_x = rect.left;
+      vertices[0].texture_y = rect.top;
+      vertices[1].texture_x = rect.right;
+      vertices[1].texture_y = rect.top;
+      vertices[2].texture_x = rect.left;
+      vertices[2].texture_y = rect.bottom;
+      vertices[3].texture_x = rect.right;
+      vertices[3].texture_y = rect.bottom;
     }
 
     void invalidate() {
@@ -74,6 +86,7 @@ namespace visage {
 
       width_ = width;
       height_ = height;
+      screenshot_data_.reset();
       destroyFrameBuffer();
       invalidate();
     }
@@ -90,11 +103,20 @@ namespace visage {
     }
     bool hdr() const { return hdr_; }
 
+    void takeScreenshot(const std::string& filename);
+    std::unique_ptr<uint8_t[]> screenshotData() { return std::move(screenshot_data_); }
     void pairToWindow(void* window_handle, int width, int height) {
       window_handle_ = window_handle;
       setDimensions(width, height);
       destroyFrameBuffer();
     }
+
+    void setHeadlessRender(int width, int height) {
+      headless_render_ = true;
+      setDimensions(width, height);
+      destroyFrameBuffer();
+    }
+    bool isHeadlessRender() const { return headless_render_; }
 
     void removeFromWindow() {
       window_handle_ = nullptr;
@@ -103,7 +125,7 @@ namespace visage {
 
     void clear() {
       regions_.clear();
-      atlas_.clear();
+      atlas_map_.clear();
     }
 
   private:
@@ -115,8 +137,13 @@ namespace visage {
     bool intermediate_layer_ = false;
 
     void* window_handle_ = nullptr;
+    bool headless_render_ = false;
+    std::unique_ptr<uint8_t[]> screenshot_data_;
+
+    GradientAtlas* gradient_atlas_ = nullptr;
+    std::unique_ptr<const PackedBrush> clear_brush_;
     std::unique_ptr<FrameBufferData> frame_buffer_data_;
-    PackedAtlas<const Region*> atlas_;
+    PackedAtlasMap<const Region*> atlas_map_;
     std::map<const Region*, std::vector<Bounds>> invalid_rects_;
     std::vector<Bounds> invalid_rect_pieces_;
     std::vector<Region*> regions_;

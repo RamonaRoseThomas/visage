@@ -21,7 +21,6 @@
 
 #include "shape_batcher.h"
 
-#include "canvas.h"
 #include "embedded/shaders.h"
 #include "font.h"
 #include "graphics_caches.h"
@@ -261,8 +260,8 @@ namespace visage {
   }
 
   inline void setColorMult(bool hdr) {
-    float value = hdr ? kHdrColorMultiplier : 1.0f;
-    float color_mult[] = { value, value, value, value };
+    float value = (hdr ? kHdrColorMultiplier : 1.0f) * Color::kGradientNormalization;
+    float color_mult[] = { value, value, value, 1.0f };
     setUniform<Uniforms::kColorMult>(color_mult);
   }
 
@@ -311,6 +310,8 @@ namespace visage {
     setUniformDimensions(layer.width(), layer.height());
     setColorMult(layer.hdr());
     setOriginFlipUniform(layer.bottomLeftOrigin());
+    GradientAtlas* gradient_atlas = layer.gradientAtlas();
+    setTexture<Uniforms::kGradient>(0, gradient_atlas->colorTextureHandle());
     bgfx::submit(submit_pass, ProgramCache::programHandle(vertex_shader, fragment_shader));
   }
 
@@ -320,36 +321,32 @@ namespace visage {
         line->num_line_vertices)
       return;
 
-    QuadColor line_color = line_wrapper.color;
-    Color top_left_line = Color::fromABGR(line_color.corners[0]);
-    top_left_line.multRgb(line_color.hdr[0]);
-    Color top_right_line = Color::fromABGR(line_color.corners[1]);
-    top_right_line.multRgb(line_color.hdr[1]);
-    Color bottom_left_line = Color::fromABGR(line_color.corners[2]);
-    bottom_left_line.multRgb(line_color.hdr[2]);
-    Color bottom_right_line = Color::fromABGR(line_color.corners[3]);
-    bottom_right_line.multRgb(line_color.hdr[3]);
-
-    float dimensions[4] = { line_wrapper.width, line_wrapper.height, 1.0f, 1.0f };
-    float time[] = { static_cast<float>(layer.time()), 0.0f, 0.0f, 0.0f };
-
     bgfx::TransientVertexBuffer vertex_buffer {};
     bgfx::allocTransientVertexBuffer(&vertex_buffer, line->num_line_vertices, LineVertex::layout());
     setLineVertices(line_wrapper, vertex_buffer);
 
     bgfx::setState(blendModeValue(BlendMode::Alpha) | BGFX_STATE_PT_TRISTRIP);
-    setUniform<Uniforms::kDimensions>(dimensions);
-    setUniform<Uniforms::kTopLeftColor>(&top_left_line);
-    setUniform<Uniforms::kTopRightColor>(&top_right_line);
-    setUniform<Uniforms::kBottomLeftColor>(&bottom_left_line);
-    setUniform<Uniforms::kBottomRightColor>(&bottom_right_line);
-    setUniform<Uniforms::kTime>(time);
 
+    float dimensions[4] = { line_wrapper.width, line_wrapper.height, 1.0f, 1.0f };
+    float time[] = { static_cast<float>(layer.time()), 0.0f, 0.0f, 0.0f };
+
+    auto pos = PackedBrush::computeVertexGradientPositions(line_wrapper.brush, 0, 0, 0, 0,
+                                                           line_wrapper.width, line_wrapper.height);
+    float gradient_color_pos[] = { pos.gradient_color_from_x, pos.gradient_color_y,
+                                   pos.gradient_color_to_x, pos.gradient_color_y };
+    float gradient_pos[] = { pos.gradient_position_from_x, pos.gradient_position_from_y,
+                             pos.gradient_position_to_x, pos.gradient_position_to_y };
     float line_width[] = { line_wrapper.line_width * 2.0f, 0.0f, 0.0f, 0.0f };
+    setUniform<Uniforms::kDimensions>(dimensions);
+    setUniform<Uniforms::kTime>(time);
+    setUniform<Uniforms::kGradientColorPosition>(gradient_color_pos);
+    setUniform<Uniforms::kGradientPosition>(gradient_pos);
     setUniform<Uniforms::kLineWidth>(line_width);
+    setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
 
     bgfx::setVertexBuffer(0, &vertex_buffer);
     setUniformBounds(line_wrapper.x, line_wrapper.y, layer.width(), layer.height());
+    setColorMult(layer.hdr());
     setScissor(line_wrapper, layer.width(), layer.height());
     auto program = ProgramCache::programHandle(LineWrapper::vertexShader(), LineWrapper::fragmentShader());
     bgfx::submit(submit_pass, program);
@@ -386,19 +383,16 @@ namespace visage {
     float dimensions[4] = { line_fill_wrapper.width, line_fill_wrapper.height * dimension_y_scale,
                             1.0f, 1.0f };
     float time[] = { static_cast<float>(layer.time()), 0.0f, 0.0f, 0.0f };
+    auto pos = PackedBrush::computeVertexGradientPositions(line_fill_wrapper.brush, 0, 0, 0, 0,
+                                                           line_fill_wrapper.width,
+                                                           line_fill_wrapper.height);
+    float gradient_color_pos[] = { pos.gradient_color_from_x, pos.gradient_color_y,
+                                   pos.gradient_color_to_x, pos.gradient_color_y };
+    float gradient_pos[] = { pos.gradient_position_from_x, pos.gradient_position_from_y,
+                             pos.gradient_position_to_x, pos.gradient_position_to_y };
 
     float fill_location = static_cast<int>(line_fill_wrapper.fill_center);
     float center[] = { 0.0f, fill_location, 0.0f, 0.0f };
-
-    QuadColor fill_color = line_fill_wrapper.color;
-    Color top_left_fill = Color::fromABGR(fill_color.corners[0]);
-    top_left_fill.multRgb(fill_color.hdr[0]);
-    Color top_right_fill = Color::fromABGR(fill_color.corners[1]);
-    top_right_fill.multRgb(fill_color.hdr[1]);
-    Color bottom_left_fill = Color::fromABGR(fill_color.corners[2]);
-    bottom_left_fill.multRgb(fill_color.hdr[2]);
-    Color bottom_right_fill = Color::fromABGR(fill_color.corners[3]);
-    bottom_right_fill.multRgb(fill_color.hdr[3]);
 
     bgfx::TransientVertexBuffer fill_vertex_buffer {};
     bgfx::allocTransientVertexBuffer(&fill_vertex_buffer, line->num_fill_vertices, LineVertex::layout());
@@ -406,17 +400,17 @@ namespace visage {
 
     bgfx::setState(blendModeValue(BlendMode::Alpha) | BGFX_STATE_PT_TRISTRIP);
     setUniform<Uniforms::kDimensions>(dimensions);
-    setUniform<Uniforms::kTopLeftColor>(&top_left_fill);
-    setUniform<Uniforms::kTopRightColor>(&top_right_fill);
-    setUniform<Uniforms::kBottomLeftColor>(&bottom_left_fill);
-    setUniform<Uniforms::kBottomRightColor>(&bottom_right_fill);
-    setUniform<Uniforms::kBottomRightColor>(&bottom_right_fill);
     setUniform<Uniforms::kTime>(time);
+    setUniform<Uniforms::kGradientColorPosition>(gradient_color_pos);
+    setUniform<Uniforms::kGradientPosition>(gradient_pos);
     setUniform<Uniforms::kCenterPosition>(center);
+
+    setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
 
     bgfx::setVertexBuffer(0, &fill_vertex_buffer);
     setUniformBounds(line_fill_wrapper.x, line_fill_wrapper.y, layer.width(), layer.height());
     setScissor(line_fill_wrapper, layer.width(), layer.height());
+    setColorMult(layer.hdr());
     auto program = ProgramCache::programHandle(LineFillWrapper::vertexShader(),
                                                LineFillWrapper::fragmentShader());
     bgfx::submit(submit_pass, program);
@@ -426,12 +420,12 @@ namespace visage {
     if (!setupQuads(batches))
       return;
 
-    const ImageGroup* image_group = batches[0].shapes->front().image_group;
+    const ImageAtlas* image_atlas = batches[0].shapes->front().image_atlas;
     setBlendMode(BlendMode::Alpha);
-    float atlas_scale[] = { 1.0f / image_group->atlasWidth(), 1.0f / image_group->atlasHeight(),
-                            0.0f, 0.0f };
+    float atlas_scale[] = { 1.0f / image_atlas->width(), 1.0f / image_atlas->height(), 0.0f, 0.0f };
     setUniform<Uniforms::kAtlasScale>(atlas_scale);
-    setTexture<Uniforms::kTexture>(0, image_group->textureHandle());
+    setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
+    setTexture<Uniforms::kTexture>(1, image_atlas->textureHandle());
     setUniformDimensions(layer.width(), layer.height());
     setColorMult(layer.hdr());
 
@@ -533,6 +527,10 @@ namespace visage {
             coordinate_index3 = 2;
           }
 
+          PackedBrush::setVertexGradientPositions(text_block.brush, vertices + vertex_index,
+                                                  length * kVerticesPerQuad, x, y, batch.x, batch.y,
+                                                  x + text_block.width, y + text_block.height);
+
           for (int i = 0; i < length; ++i) {
             if (!overlaps(text_block.quads[i]))
               continue;
@@ -549,23 +547,12 @@ namespace visage {
 
             vertices[vertex_index].x = left;
             vertices[vertex_index].y = top;
-            vertices[vertex_index].color = text_block.color.corners[0];
-            vertices[vertex_index].hdr = text_block.color.hdr[0];
-
             vertices[vertex_index + 1].x = right;
             vertices[vertex_index + 1].y = top;
-            vertices[vertex_index + 1].color = text_block.color.corners[1];
-            vertices[vertex_index + 1].hdr = text_block.color.hdr[1];
-
             vertices[vertex_index + 2].x = left;
             vertices[vertex_index + 2].y = bottom;
-            vertices[vertex_index + 2].color = text_block.color.corners[2];
-            vertices[vertex_index + 2].hdr = text_block.color.hdr[2];
-
             vertices[vertex_index + 3].x = right;
             vertices[vertex_index + 3].y = bottom;
-            vertices[vertex_index + 3].color = text_block.color.corners[3];
-            vertices[vertex_index + 3].hdr = text_block.color.hdr[3];
 
             vertices[vertex_index + coordinate_index0].texture_x = texture_x;
             vertices[vertex_index + coordinate_index0].texture_y = texture_y;
@@ -596,7 +583,8 @@ namespace visage {
 
     float atlas_scale_uniform[] = { 1.0f / font.atlasWidth(), 1.0f / font.atlasHeight(), 0.0f, 0.0f };
     setUniform<Uniforms::kAtlasScale>(atlas_scale_uniform);
-    setTexture<Uniforms::kTexture>(0, font.textureHandle());
+    setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
+    setTexture<Uniforms::kTexture>(1, font.textureHandle());
     setUniformDimensions(layer.width(), layer.height());
     setColorMult(layer.hdr());
     bgfx::submit(submit_pass,
@@ -610,6 +598,7 @@ namespace visage {
     setBlendMode(BlendMode::Alpha);
     setTimeUniform(layer.time());
     setUniformDimensions(layer.width(), layer.height());
+    setTexture<Uniforms::kGradient>(0, layer.gradientAtlas()->colorTextureHandle());
     setColorMult(layer.hdr());
     setOriginFlipUniform(layer.bottomLeftOrigin());
     Shader* shader = batches[0].shapes->front().shader;
@@ -630,10 +619,11 @@ namespace visage {
     float atlas_scale[] = { width_scale, height_scale, 0.0f, 0.0f };
     setUniform<Uniforms::kAtlasScale>(atlas_scale);
 
-    bgfx::TextureHandle texture = bgfx::getTexture(source_layer->frameBuffer());
-    setTexture<Uniforms::kTexture>(0, texture);
+    setTexture<Uniforms::kTexture>(0, bgfx::getTexture(source_layer->frameBuffer()));
     setUniformDimensions(layer.width(), layer.height());
-    setColorMult(layer.hdr());
+    float value = layer.hdr() ? kHdrColorMultiplier : 1.0f;
+    float color_mult[] = { value, value, value, 1.0f };
+    setUniform<Uniforms::kColorMult>(color_mult);
     setOriginFlipUniform(layer.bottomLeftOrigin());
     bgfx::submit(submit_pass, ProgramCache::programHandle(SampleRegion::vertexShader(),
                                                           SampleRegion::fragmentShader()));

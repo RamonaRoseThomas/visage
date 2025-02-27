@@ -41,7 +41,7 @@ namespace visage {
         canvas.rectangle(c, r, kSquareWidth, kSquareWidth);
     }
 
-    std::vector<Palette::EditColor> colors = palette_->colorList();
+    std::vector<Brush> colors = palette_->colorList();
     int palette_width = w * kPaletteWidthRatio;
     float color_height = colorHeight();
     int color_position = color_list_.yPosition();
@@ -51,7 +51,7 @@ namespace visage {
       int y = std::round(color_height * i) - color_position;
       int end_y = std::round(color_height * (i + 1) - kColorSpacing) - color_position;
 
-      canvas.setColor(colors[i].toQuadColor());
+      canvas.setColor(colors[i]);
       canvas.roundedRectangle(0, y, palette_width, end_y - y, 8);
       if (i == editing_) {
         canvas.setColor(0xffffffff);
@@ -105,7 +105,7 @@ namespace visage {
         for (theme::ColorId color_id : group.second) {
           y = kColorIdHeight * index;
 
-          QuadColor matched_color;
+          Brush matched_color;
           if (palette_->color(current_override_id_, color_id, matched_color)) {
             canvas.setColor(matched_color);
             canvas.roundedRectangle(palette_width, y, id_width, kColorIdHeight, 8);
@@ -127,7 +127,7 @@ namespace visage {
 
     int dragging = dragging_;
     if (dragging >= 0 && dragging < colors.size()) {
-      canvas.setColor(colors[dragging].toQuadColor());
+      canvas.setBrush(colors[dragging]);
       canvas.circle(mouse_drag_x_ - 10, mouse_drag_y_ - 10, 20);
     }
   }
@@ -146,30 +146,25 @@ namespace visage {
   void PaletteColorEditor::setColorPickerBounds() {
     int w = width();
     int h = height();
-    for (int i = 0; i < QuadColor::kNumCorners; ++i) {
-      color_pickers_[i].setVisible(num_colors_editing_ > i);
-      color_pickers_[i].onColorChange() = [this, i](Color color) {
-        if (editing_ < 0)
-          return;
+    color_picker_from_.onColorChange() = [this](Color color) {
+      if (editing_ >= 0)
+        palette_->setColorIndexFrom(editing_, color);
+      redraw();
+    };
+    color_picker_to_.onColorChange() = [this](Color color) {
+      if (editing_ >= 0)
+        palette_->setColorIndexTo(editing_, color);
+      redraw();
+    };
+    color_picker_to_.setVisible(editing_gradient_);
 
-        palette_->setColorIndex(editing_, i, color);
-      };
-    }
-
-    if (num_colors_editing_ > 2) {
-      int picker_width = w / 2;
-      color_pickers_[0].setBounds(0, h - w, picker_width, picker_width);
-      color_pickers_[1].setBounds(picker_width, h - w, picker_width, picker_width);
-      color_pickers_[2].setBounds(0, h - picker_width, picker_width, picker_width);
-      color_pickers_[3].setBounds(picker_width, h - picker_width, picker_width, picker_width);
-    }
-    else if (num_colors_editing_ == 2) {
+    if (editing_gradient_) {
       int picker_height = w / 2;
-      color_pickers_[0].setBounds(0, h - w, w, picker_height);
-      color_pickers_[1].setBounds(0, h - picker_height, w, picker_height);
+      color_picker_from_.setBounds(0, h - w, w, picker_height);
+      color_picker_to_.setBounds(0, h - picker_height, w, picker_height);
     }
     else
-      color_pickers_[0].setBounds(0, h - w, w, w);
+      color_picker_from_.setBounds(0, h - w, w, w);
 
     setScrollBarBounds(w - 20, 0, 20, h - w);
     color_list_.setScrollBarBounds(w - 20, 0, 20, h - w);
@@ -256,7 +251,7 @@ namespace visage {
     bool toggle = e.isMiddleButton() || e.isAltDown();
     if (toggle && mouse_down_index_ >= 0 && mouse_down_index_ < palette_->numColors()) {
       palette_->toggleColorIndexStyle(mouse_down_index_);
-      setNumColorsEditing(palette_->colorIndex(mouse_down_index_).numActiveCorners());
+      setEditingGradient(palette_->colorIndex(mouse_down_index_).gradient().resolution() > 1);
       mouse_down_index_ = -1;
       return;
     }
@@ -267,11 +262,10 @@ namespace visage {
         setColorListHeight();
       }
 
-      const Palette::EditColor& color = palette_->colorIndex(mouse_down_index_);
-      for (int i = 0; i < QuadColor::kNumCorners; ++i)
-        color_pickers_[i].setColor(color.colors[i]);
-
-      setNumColorsEditing(color.numActiveCorners());
+      const Brush& color = palette_->colorIndex(mouse_down_index_);
+      color_picker_from_.setColor(color.gradient().sample(0.0f));
+      color_picker_to_.setColor(color.gradient().sample(1.0f));
+      setEditingGradient(color.gradient().resolution() > 1);
       editing_ = mouse_down_index_;
     }
     else
@@ -329,7 +323,7 @@ namespace visage {
       return true;
     }
     else if (key.keyCode() == KeyCode::V && editing_ >= 0) {
-      Palette::EditColor color;
+      Brush color;
       color.decode(readClipboardText());
       palette_->setEditColor(editing_, color);
       return true;
@@ -351,8 +345,8 @@ namespace visage {
     return std::max(color_height, kMinColorHeight * dpiScale());
   }
 
-  void PaletteColorEditor::setNumColorsEditing(int num) {
-    num_colors_editing_ = num;
+  void PaletteColorEditor::setEditingGradient(bool gradient) {
+    editing_gradient_ = gradient;
     setColorPickerBounds();
   }
 

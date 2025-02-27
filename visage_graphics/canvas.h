@@ -37,11 +37,14 @@ namespace visage {
 
   class Canvas {
   public:
+    static constexpr float kSqrt2 = 1.4142135623730950488016887242097f;
+    static constexpr float kDefaultSquirclePower = 4.0f;
+
     struct State {
       int x = 0;
       int y = 0;
       theme::OverrideId palette_override;
-      QuadColor color;
+      const PackedBrush* brush = nullptr;
       ClampBounds clamp;
       BlendMode blend_mode = BlendMode::Alpha;
       Region* current_region = nullptr;
@@ -55,6 +58,7 @@ namespace visage {
     int submit(int submit_pass = 0);
 
     void takeScreenshot(const std::string& filename);
+    void saveScreenshot();
 
     void ensureLayerExists(int layer);
     Layer* layer(int index) {
@@ -62,7 +66,7 @@ namespace visage {
       return layers_[index];
     }
 
-    void invalidateRectInRegion(Bounds rect, Region* region, int layer);
+    void invalidateRectInRegion(Bounds rect, const Region* region, int layer);
     void addToPackedLayer(Region* region, int layer_index);
     void removeFromPackedLayer(Region* region, int layer_index);
     void changePackedLayer(Region* region, int from, int to);
@@ -71,6 +75,8 @@ namespace visage {
       composite_layer_.pairToWindow(window_handle, width, height);
       setDimensions(width, height);
     }
+
+    void setWindowless(int width, int height) { composite_layer_.setHeadlessRender(width, height); }
 
     void removeFromWindow() { composite_layer_.removeFromWindow(); }
 
@@ -88,58 +94,62 @@ namespace visage {
     int frameCount() const { return render_frame_; }
 
     void setBlendMode(BlendMode blend_mode) { state_.blend_mode = blend_mode; }
-    void setColor(unsigned int color) { state_.color = color; }
-    void setColor(const QuadColor& color) { state_.color = color; }
-    void setColor(theme::ColorId color_id) { state_.color = color(color_id); }
+    void setBrush(const Brush& brush) {
+      state_.brush = state_.current_region->addBrush(&gradient_atlas_, brush);
+    }
+    void setColor(const Brush& brush) { setBrush(brush); }
+    void setColor(unsigned int color) { setBrush(Brush::solid(color)); }
+    void setColor(const Color& color) { setBrush(Brush::solid(color)); }
+    void setColor(theme::ColorId color_id) { setBrush(color(color_id)); }
 
     void setBlendedColor(theme::ColorId color_from, theme::ColorId color_to, float t) {
-      state_.color = blendedColor(color_from, color_to, t);
+      setBrush(blendedColor(color_from, color_to, t));
     }
 
     void fill(float x, float y, float width, float height) {
-      addShape(Fill(state_.clamp.clamp(x, y, width, height), state_.color, state_.x + x,
+      addShape(Fill(state_.clamp.clamp(x, y, width, height), state_.brush, state_.x + x,
                     state_.y + y, width, height));
     }
 
     void circle(float x, float y, float width) {
-      addShape(Circle(state_.clamp, state_.color, state_.x + x, state_.y + y, width));
+      addShape(Circle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width));
     }
 
     void fadeCircle(float x, float y, float width, float fade) {
-      Circle circle(state_.clamp, state_.color, state_.x + x, state_.y + y, width);
+      Circle circle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width);
       circle.pixel_width = fade;
       addShape(circle);
     }
 
     void ring(float x, float y, float width, float thickness) {
-      Circle circle(state_.clamp, state_.color, state_.x + x, state_.y + y, width);
+      Circle circle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width);
       circle.thickness = thickness;
       addShape(circle);
     }
 
-    void squircle(float x, float y, float width, float power) {
-      addShape(Squircle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width, power));
+    void squircle(float x, float y, float width, float power = kDefaultSquirclePower) {
+      addShape(Squircle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, width, power));
     }
 
     void squircleBorder(float x, float y, float width, float power, float thickness) {
-      Squircle squircle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width, power);
+      Squircle squircle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, width, power);
       squircle.thickness = thickness;
       addShape(squircle);
     }
 
     void superEllipse(float x, float y, float width, float height, float power) {
-      addShape(Squircle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height, power));
+      addShape(Squircle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height, power));
     }
 
     void roundedArc(float x, float y, float width, float thickness, float center_radians,
                     float radians, float pixel_width = 1.0f) {
-      addShape(RoundedArc(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width,
+      addShape(RoundedArc(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, width,
                           thickness + 1.0f, center_radians, radians));
     }
 
     void flatArc(float x, float y, float width, float thickness, float center_radians,
                  float radians, float pixel_width = 1.0f) {
-      addShape(FlatArc(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width,
+      addShape(FlatArc(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, width,
                        thickness + 1.0f, center_radians, radians));
     }
 
@@ -154,7 +164,7 @@ namespace visage {
     void roundedArcShadow(float x, float y, float width, float thickness, float center_radians,
                           float radians, float shadow_width, bool rounded = false) {
       float full_width = width + 2.0f * shadow_width;
-      RoundedArc arc(state_.clamp, state_.color, state_.x + x - shadow_width,
+      RoundedArc arc(state_.clamp, state_.brush, state_.x + x - shadow_width,
                      state_.y + y - shadow_width, full_width, full_width,
                      thickness + 1.0f + 2.0f * shadow_width, center_radians, radians);
       arc.pixel_width = shadow_width;
@@ -164,7 +174,7 @@ namespace visage {
     void flatArcShadow(float x, float y, float width, float thickness, float center_radians,
                        float radians, float shadow_width, bool rounded = false) {
       float full_width = width + 2.0f * shadow_width;
-      FlatArc arc(state_.clamp, state_.color, state_.x + x - shadow_width,
+      FlatArc arc(state_.clamp, state_.brush, state_.x + x - shadow_width,
                   state_.y + y - shadow_width, full_width, full_width,
                   thickness + 1.0f + 2.0f * shadow_width, center_radians, radians);
       arc.pixel_width = shadow_width;
@@ -184,45 +194,60 @@ namespace visage {
       float y2 = 2.0f * (b_y - y) / height - 1.0f;
 
       if (rounded) {
-        addShape(RoundedSegment(state_.clamp, state_.color, state_.x + x, state_.y + y, width,
+        addShape(RoundedSegment(state_.clamp, state_.brush, state_.x + x, state_.y + y, width,
                                 height, x1, y1, x2, y2, thickness + 1.0f, pixel_width));
       }
       else {
-        addShape(FlatSegment(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height,
+        addShape(FlatSegment(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height,
                              x1, y1, x2, y2, thickness + 1.0f, pixel_width));
       }
     }
 
-    void rotary(float x, float y, float width, float value, float hover_amount, float arc_thickness,
-                const QuadColor& back_color, const QuadColor& thumb_color, bool bipolar = false) {
-      addShape(Rotary(state_.clamp, state_.color, back_color, thumb_color, state_.x + x,
-                      state_.y + y, width, value, bipolar, hover_amount, arc_thickness));
+    void quadratic(float a_x, float a_y, float b_x, float b_y, float c_x, float c_y,
+                   float thickness, float pixel_width = 1.0f) {
+      if (tryDrawCollinearQuadratic(a_x, a_y, b_x, b_y, c_x, c_y, thickness, pixel_width))
+        return;
+
+      float x = std::min(std::min(a_x, b_x), c_x) - thickness;
+      float width = std::max(std::max(a_x, b_x), c_x) + thickness - x;
+      float y = std::min(std::min(a_y, b_y), c_y) - thickness;
+      float height = std::max(std::max(a_y, b_y), c_y) + thickness - y;
+
+      float x1 = 2.0f * (a_x - x) / width - 1.0f;
+      float y1 = 2.0f * (a_y - y) / height - 1.0f;
+      float x2 = 2.0f * (b_x - x) / width - 1.0f;
+      float y2 = 2.0f * (b_y - y) / height - 1.0f;
+      float x3 = 2.0f * (c_x - x) / width - 1.0f;
+      float y3 = 2.0f * (c_y - y) / height - 1.0f;
+
+      addShape(QuadraticBezier(state_.clamp, state_.brush, state_.x + x, state_.y + y, width,
+                               height, x1, y1, x2, y2, x3, y3, thickness + 1.0f, pixel_width));
     }
 
     void rectangle(float x, float y, float width, float height) {
-      addShape(Rectangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height));
+      addShape(Rectangle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height));
     }
 
     void rectangleBorder(float x, float y, float width, float height, float thickness) {
-      Rectangle border(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height);
+      Rectangle border(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height);
       border.thickness = thickness + 1.0f;
       addShape(border);
     }
 
     void roundedRectangle(float x, float y, float width, float height, float rounding) {
-      addShape(RoundedRectangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width,
+      addShape(RoundedRectangle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width,
                                 height, std::max(1.0f, rounding)));
     }
 
     void diamond(float x, float y, float width, float rounding) {
-      addShape(Diamond(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width,
+      addShape(Diamond(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, width,
                        std::max(1.0f, rounding)));
     }
 
     void leftRoundedRectangle(float x, float y, float width, float height, float rounding) {
       ClampBounds clamp = state_.clamp;
       clamp.right = std::min(clamp.right, state_.x + x + width);
-      addShape(RoundedRectangle(clamp, state_.color, state_.x + x, state_.y + y,
+      addShape(RoundedRectangle(clamp, state_.brush, state_.x + x, state_.y + y,
                                 width + rounding + 1.0f, height, std::max(1.0f, rounding)));
     }
 
@@ -230,14 +255,14 @@ namespace visage {
       ClampBounds clamp = state_.clamp;
       clamp.left = std::max(clamp.left, state_.x + x);
       float growth = rounding + 1.0f;
-      addShape(RoundedRectangle(clamp, state_.color, state_.x + x - growth, state_.y + y,
+      addShape(RoundedRectangle(clamp, state_.brush, state_.x + x - growth, state_.y + y,
                                 width + growth, height, std::max(1.0f, rounding)));
     }
 
     void topRoundedRectangle(float x, float y, float width, float height, float rounding) {
       ClampBounds clamp = state_.clamp;
       clamp.bottom = std::min(clamp.bottom, state_.y + y + height);
-      addShape(RoundedRectangle(clamp, state_.color, state_.x + x, state_.y + y, width,
+      addShape(RoundedRectangle(clamp, state_.brush, state_.x + x, state_.y + y, width,
                                 height + rounding + 1.0f, std::max(1.0f, rounding)));
     }
 
@@ -245,13 +270,13 @@ namespace visage {
       ClampBounds clamp = state_.clamp;
       clamp.top = std::max(clamp.top, state_.y + y);
       float growth = rounding + 1.0f;
-      addShape(RoundedRectangle(clamp, state_.color, state_.x + x, state_.y + y - growth, width,
+      addShape(RoundedRectangle(clamp, state_.brush, state_.x + x, state_.y + y - growth, width,
                                 height + growth, std::max(1.0f, rounding)));
     }
 
     void rectangleShadow(float x, float y, float width, float height, float blur_radius) {
       if (blur_radius > 0.0f) {
-        Rectangle rectangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height);
+        Rectangle rectangle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height);
         rectangle.pixel_width = blur_radius;
         addShape(rectangle);
       }
@@ -267,19 +292,11 @@ namespace visage {
         rectangleShadow(state_.x + x + offset, state_.y + y + offset, width + blur_radius,
                         height + blur_radius, blur_radius);
       else {
-        RoundedRectangle shadow(state_.clamp, state_.color, state_.x + x + offset, state_.y + y + offset,
+        RoundedRectangle shadow(state_.clamp, state_.brush, state_.x + x + offset, state_.y + y + offset,
                                 width + blur_radius, height + blur_radius, rounding);
         shadow.pixel_width = blur_radius;
         addShape(shadow);
       }
-    }
-
-    void fullRoundedRectangleBorder(float x, float y, float width, float height, float rounding,
-                                    float thickness) {
-      RoundedRectangle border(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height,
-                              rounding);
-      border.thickness = thickness;
-      addShape(border);
     }
 
     void roundedRectangleBorder(float x, float y, float width, float height, float rounding, float thickness) {
@@ -307,29 +324,72 @@ namespace visage {
       restoreState();
     }
 
+    void triangleBorder(float a_x, float a_y, float b_x, float b_y, float c_x, float c_y, float thickness) {
+      outerRoundedTriangleBorder(a_x, a_y, b_x, b_y, c_x, c_y, 0.0f, thickness);
+    }
+
+    void triangle(float a_x, float a_y, float b_x, float b_y, float c_x, float c_y) {
+      float d1_x = a_x - b_x;
+      float d1_y = a_y - b_y;
+      float d2_x = a_x - c_x;
+      float d2_y = a_y - c_y;
+      float thickness = sqrtf(std::max(d1_x * d1_x + d1_y * d1_y, d2_x * d2_x + d2_y * d2_y));
+      outerRoundedTriangleBorder(a_x, a_y, b_x, b_y, c_x, c_y, 0.0f, thickness);
+    }
+
+    void roundedTriangleBorder(float a_x, float a_y, float b_x, float b_y, float c_x, float c_y,
+                               float rounding, float thickness) {
+      float d_ab = sqrtf((a_x - b_x) * (a_x - b_x) + (a_y - b_y) * (a_y - b_y));
+      float d_bc = sqrtf((b_x - c_x) * (b_x - c_x) + (b_y - c_y) * (b_y - c_y));
+      float d_ca = sqrtf((c_x - a_x) * (c_x - a_x) + (c_y - a_y) * (c_y - a_y));
+      float perimeter = d_ab + d_bc + d_ca;
+      float inscribed_circle_x = (d_bc * a_x + d_ca * b_x + d_ab * c_x) / perimeter;
+      float inscribed_circle_y = (d_bc * a_y + d_ca * b_y + d_ab * c_y) / perimeter;
+      float s = perimeter * 0.5f;
+      float inscribed_circle_radius = sqrtf(s * (s - d_ab) * (s - d_bc) * (s - d_ca)) / s;
+
+      rounding = std::min(rounding, inscribed_circle_radius);
+      float shrinking = rounding / inscribed_circle_radius;
+      outerRoundedTriangleBorder(a_x + (inscribed_circle_x - a_x) * shrinking,
+                                 a_y + (inscribed_circle_y - a_y) * shrinking,
+                                 b_x + (inscribed_circle_x - b_x) * shrinking,
+                                 b_y + (inscribed_circle_y - b_y) * shrinking,
+                                 c_x + (inscribed_circle_x - c_x) * shrinking,
+                                 c_y + (inscribed_circle_y - c_y) * shrinking, rounding, thickness);
+    }
+
+    void roundedTriangle(float a_x, float a_y, float b_x, float b_y, float c_x, float c_y, float rounding) {
+      float d1_x = a_x - b_x;
+      float d1_y = a_y - b_y;
+      float d2_x = a_x - c_x;
+      float d2_y = a_y - c_y;
+      float thickness = sqrtf(std::max(d1_x * d1_x + d1_y * d1_y, d2_x * d2_x + d2_y * d2_y));
+      roundedTriangleBorder(a_x, a_y, b_x, b_y, c_x, c_y, rounding, thickness);
+    }
+
     void triangleLeft(float x, float y, float width) {
-      addShape(Triangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width * 2.0f,
-                        Direction::Left));
+      float h = width * 2.0f;
+      outerRoundedTriangleBorder(x + width, y, x + width, y + h, x, y + h * 0.5f, 0.0f, width);
     }
 
     void triangleRight(float x, float y, float width) {
-      addShape(Triangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width, width * 2.0f,
-                        Direction::Right));
+      float h = width * 2.0f;
+      outerRoundedTriangleBorder(x, y, x, y + h, x + width, y + h * 0.5f, 0.0f, width);
     }
 
     void triangleUp(float x, float y, float width) {
-      addShape(Triangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width * 2.0f, width,
-                        Direction::Up));
+      float w = width * 2.0f;
+      outerRoundedTriangleBorder(x, y + width, x + w, y + width, x + w * 0.5f, y, 0.0f, width);
     }
 
     void triangleDown(float x, float y, float width) {
-      addShape(Triangle(state_.clamp, state_.color, state_.x + x, state_.y + y, width * 2.0f, width,
-                        Direction::Down));
+      float w = width * 2.0f;
+      outerRoundedTriangleBorder(x, y, x + w, y, x + w * 0.5f, y + width, 0.0f, width);
     }
 
     void text(Text* text, float x, float y, float width, float height, Direction dir = Direction::Up) {
       VISAGE_ASSERT(text->font().packedFont());
-      TextBlock text_block(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height,
+      TextBlock text_block(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height,
                            text, dir);
       addShape(std::move(text_block));
     }
@@ -343,8 +403,8 @@ namespace visage {
     }
 
     void svg(const Svg& svg, float x, float y) {
-      addShape(ImageWrapper(state_.clamp, state_.color, state_.x + x, state_.y + y, svg.width,
-                            svg.height, svg, imageGroup()));
+      addShape(ImageWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, svg.width,
+                            svg.height, svg, imageAtlas()));
     }
 
     void svg(const char* svg_data, int svg_size, float x, float y, int width, int height,
@@ -357,8 +417,8 @@ namespace visage {
     }
 
     void image(const Image& image, float x, float y) {
-      addShape(ImageWrapper(state_.clamp, state_.color, state_.x + x, state_.y + y, image.width,
-                            image.height, image, imageGroup()));
+      addShape(ImageWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, image.width,
+                            image.height, image, imageAtlas()));
     }
 
     void image(const char* image_data, int image_size, float x, float y, int width, int height) {
@@ -370,16 +430,16 @@ namespace visage {
     }
 
     void shader(Shader* shader, float x, float y, float width, float height) {
-      addShape(ShaderWrapper(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height, shader));
+      addShape(ShaderWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height, shader));
     }
 
     void line(Line* line, float x, float y, float width, float height, float line_width) {
-      addShape(LineWrapper(state_.clamp, state_.color, state_.x + x, state_.y + y, width, height,
+      addShape(LineWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height,
                            line, line_width));
     }
 
     void lineFill(Line* line, float x, float y, float width, float height, float fill_position) {
-      addShape(LineFillWrapper(state_.clamp, state_.color, state_.x + x, state_.y + y, width,
+      addShape(LineFillWrapper(state_.clamp, state_.brush, state_.x + x, state_.y + y, width,
                                height, line, fill_position));
     }
 
@@ -405,9 +465,9 @@ namespace visage {
       saveState();
       state_.x = 0;
       state_.y = 0;
+      state_.brush = nullptr;
       state_.blend_mode = BlendMode::Alpha;
       setClampBounds(0, 0, region->width(), region->height());
-      state_.color = {};
       state_.current_region = region;
     }
 
@@ -446,19 +506,16 @@ namespace visage {
     int x() const { return state_.x; }
     int y() const { return state_.y; }
 
-    QuadColor color(theme::ColorId color_id);
-    QuadColor blendedColor(theme::ColorId color_from, theme::ColorId color_to, float t) {
-      return color(color_from).interpolate(color(color_to), t);
+    Brush color(theme::ColorId color_id);
+    Brush blendedColor(theme::ColorId color_from, theme::ColorId color_to, float t) {
+      return color(color_from).interpolateWith(color(color_to), t);
     }
 
     float value(theme::ValueId value_id);
     std::vector<std::string> debugInfo() const;
 
-    ImageGroup* imageGroup() {
-      if (image_group_ == nullptr)
-        image_group_ = std::make_unique<ImageGroup>();
-      return image_group_.get();
-    }
+    ImageAtlas* imageAtlas() { return &image_atlas_; }
+    GradientAtlas* gradientAtlas() { return &gradient_atlas_; }
 
     State* state() { return &state_; }
 
@@ -466,6 +523,48 @@ namespace visage {
     template<typename T>
     void addShape(T shape) {
       state_.current_region->shape_batcher_.addShape(std::move(shape), state_.blend_mode);
+    }
+
+    void fullRoundedRectangleBorder(float x, float y, float width, float height, float rounding,
+                                    float thickness) {
+      RoundedRectangle border(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height,
+                              rounding);
+      border.thickness = thickness;
+      addShape(border);
+    }
+
+    void outerRoundedTriangleBorder(float a_x, float a_y, float b_x, float b_y, float c_x,
+                                    float c_y, float rounding, float thickness) {
+      float pad = rounding;
+      float x = std::min(std::min(a_x, b_x), c_x) - pad;
+      float width = std::max(std::max(a_x, b_x), c_x) - x + 2.0f * pad;
+      float y = std::min(std::min(a_y, b_y), c_y) - pad;
+      float height = std::max(std::max(a_y, b_y), c_y) - y + 2.0f * pad;
+
+      float x1 = 2.0f * (a_x - x) / width - 1.0f;
+      float y1 = 2.0f * (a_y - y) / height - 1.0f;
+      float x2 = 2.0f * (b_x - x) / width - 1.0f;
+      float y2 = 2.0f * (b_y - y) / height - 1.0f;
+      float x3 = 2.0f * (c_x - x) / width - 1.0f;
+      float y3 = 2.0f * (c_y - y) / height - 1.0f;
+
+      addShape(Triangle(state_.clamp, state_.brush, state_.x + x, state_.y + y, width, height, x1,
+                        y1, x2, y2, x3, y3, rounding, thickness + 1.0f));
+    }
+
+    bool tryDrawCollinearQuadratic(float a_x, float a_y, float b_x, float b_y, float c_x, float c_y,
+                                   float thickness, float pixel_width = 1.0f) {
+      static constexpr float kLinearThreshold = 0.01f;
+
+      float collinear_distance_x = a_x - 2.0f * b_x + c_x;
+      float collinear_distance_y = a_y - 2.0f * b_y + c_y;
+      if (collinear_distance_x > kLinearThreshold || collinear_distance_x < -kLinearThreshold ||
+          collinear_distance_y > kLinearThreshold || collinear_distance_y < -kLinearThreshold) {
+        return false;
+      }
+
+      segment(a_x, a_y, c_x, c_y, thickness, true, pixel_width);
+      return true;
     }
 
     Palette* palette_ = nullptr;
@@ -479,13 +578,15 @@ namespace visage {
     std::vector<State> state_memory_;
     State state_;
 
+    GradientAtlas gradient_atlas_;
+    ImageAtlas image_atlas_;
+
     Region window_region_;
     Region default_region_;
     Layer composite_layer_;
+    std::string screenshot_filename_;
     std::vector<std::unique_ptr<Layer>> intermediate_layers_;
     std::vector<Layer*> layers_;
-
-    std::unique_ptr<ImageGroup> image_group_;
 
     float refresh_rate_ = 0.0f;
 
