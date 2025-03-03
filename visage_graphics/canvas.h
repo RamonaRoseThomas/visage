@@ -25,6 +25,7 @@
 #include "graphics_utils.h"
 #include "layer.h"
 #include "region.h"
+#include "screenshot.h"
 #include "shape_batcher.h"
 #include "text.h"
 #include "theme.h"
@@ -39,6 +40,8 @@ namespace visage {
   public:
     static constexpr float kSqrt2 = 1.4142135623730950488016887242097f;
     static constexpr float kDefaultSquirclePower = 4.0f;
+
+    static bool swapChainSupported();
 
     struct State {
       int x = 0;
@@ -57,8 +60,8 @@ namespace visage {
     void clearDrawnShapes();
     int submit(int submit_pass = 0);
 
-    void takeScreenshot(const std::string& filename);
-    void saveScreenshot();
+    void requestScreenshot();
+    const Screenshot& screenshot() const;
 
     void ensureLayerExists(int layer);
     Layer* layer(int index) {
@@ -72,6 +75,7 @@ namespace visage {
     void changePackedLayer(Region* region, int from, int to);
 
     void pairToWindow(void* window_handle, int width, int height) {
+      VISAGE_ASSERT(swapChainSupported());
       composite_layer_.pairToWindow(window_handle, width, height);
       setDimensions(width, height);
     }
@@ -584,7 +588,6 @@ namespace visage {
     Region window_region_;
     Region default_region_;
     Layer composite_layer_;
-    std::string screenshot_filename_;
     std::vector<std::unique_ptr<Layer>> intermediate_layers_;
     std::vector<Layer*> layers_;
 

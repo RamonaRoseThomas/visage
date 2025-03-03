@@ -25,8 +25,6 @@
 
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
-#include <bimg/bimg.h>
-#include <bx/file.h>
 
 namespace visage {
   class GraphicsCallbackHandler : public bgfx::CallbackI {
@@ -52,12 +50,7 @@ namespace visage {
 
     void screenShot(const char* file_path, uint32_t width, uint32_t height, uint32_t pitch,
                     const void* data, uint32_t size, bool y_flip) override {
-      bx::FileWriter writer;
-      bx::Error error;
-      if (bx::open(&writer, file_path, false, &error)) {
-        bimg::imageWritePng(&writer, width, height, pitch, data, bimg::TextureFormat::BGRA8, y_flip, &error);
-        bx::close(&writer);
-      }
+      Renderer::instance().setScreenshotData(static_cast<const uint8_t*>(data), width, height, pitch, true);
     }
 
     void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override { }
@@ -136,23 +129,21 @@ namespace visage {
     bgfx_init.type = bgfx::RendererType::OpenGLES;
 #endif
 
-    bool backend_supported = false;
-    for (int i = 0; i < num_supported && !backend_supported; ++i)
-      backend_supported = supported_renderers[i] == bgfx_init.type;
+    for (int i = 0; i < num_supported && !supported_; ++i)
+      supported_ = supported_renderers[i] == bgfx_init.type;
 
-    if (!backend_supported) {
+    if (!supported_) {
+      VISAGE_ASSERT(false);
       std::string renderer_name = bgfx::getRendererName(bgfx_init.type);
       error_message_ = renderer_name + " is required and not supported on this computer.";
     }
 
     bgfx::init(bgfx_init);
+    VISAGE_ASSERT(bgfx::getRendererType() == bgfx_init.type);
+    swap_chain_supported_ = bgfx::getCaps()->supported & BGFX_CAPS_SWAP_CHAIN;
+  }
 
-    bool swap_chain_supported = bgfx::getCaps()->supported & BGFX_CAPS_SWAP_CHAIN;
-    if (!swap_chain_supported) {
-      VISAGE_ASSERT(false);
-      error_message_ = "Swap chain rendering is required.";
-    }
-
-    supported_ = backend_supported && swap_chain_supported;
+  void Renderer::setScreenshotData(const uint8_t* data, int width, int height, int pitch, bool blue_red) {
+    screenshot_ = Screenshot(data, width, height, pitch, blue_red);
   }
 }
